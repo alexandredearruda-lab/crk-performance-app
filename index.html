@@ -1145,36 +1145,90 @@ function renderMetricCell(fieldName, value, isGroupStart){
   return '<td class="num'+extraCls+'">'+fmtNum(value)+'</td>';
 }
 
-function getCommitment(sheetName, vendedorNome, categoria){
-  if(typeof COMMITMENTS === 'undefined') return null;
-  return COMMITMENTS.find(x => x.supervisor_sheet_name === sheetName && x.vendedor_nome === vendedorNome && (x.categoria || 'GERAL') === categoria) || null;
+const WEEKDAYS_NECESSIDADE = [
+  { key:'SEG', label:'Segunda' },
+  { key:'TER', label:'Terça' },
+  { key:'QUA', label:'Quarta' },
+  { key:'QUI', label:'Quinta' },
+  { key:'SEX', label:'Sexta' }
+];
+
+function mondayOfCurrentWeek(){
+  const now = new Date();
+  const day = now.getDay(); // 0=dom .. 6=sáb
+  const diff = day === 0 ? -6 : 1 - day;
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate() + diff);
 }
 
-function commitmentInput(sheetName, vendedorNome, categoria, field, val, editable){
-  const shown = (val !== null && val !== undefined) ? String(val).replace('.',',') : '';
-  if(!editable) return '<td class="num">'+(shown !== '' ? shown : '—')+'</td>';
-  const sn = sheetName.replace(/'/g,"\\'");
-  const vn = vendedorNome.replace(/'/g,"\\'");
-  const ct = categoria.replace(/'/g,"\\'");
-  return '<td class="num"><input type="text" inputmode="decimal" value="'+shown+'" '
-    + 'style="width:80px; text-align:right; border:1px solid var(--line); border-radius:6px; padding:5px 7px; font-family:\'IBM Plex Mono\',monospace; font-size:12.5px; background:#fffdf8;" '
-    + 'onchange="saveCommitmentField(\''+sn+'\',\''+vn+'\',\''+ct+'\',\''+field+'\',this.value)" placeholder="—"></td>';
+function dateForWeekday(diaKey){
+  const idx = WEEKDAYS_NECESSIDADE.findIndex(d => d.key === diaKey);
+  if(idx < 0) return todayStr();
+  const monday = mondayOfCurrentWeek();
+  const d = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + idx);
+  return d.toISOString().slice(0,10);
 }
 
-const COMMIT_ACTIVE_CAT = {}; // sheetName -> categoria selecionada na página de desafios
+let NECESSIDADE_VENDEDOR = null; // { codigo, nome, supervisorNome }
+let NECESSIDADE_DIA = null;      // 'SEG'..'SEX'
 
-function selectCommitCat(sheetName, categoria){
-  COMMIT_ACTIVE_CAT[sheetName] = categoria;
+function encerrarCanalNecessidade(){
+  if(typeof NECESSIDADE_REALTIME_CHANNEL !== 'undefined' && NECESSIDADE_REALTIME_CHANNEL){
+    db.removeChannel(NECESSIDADE_REALTIME_CHANNEL);
+    NECESSIDADE_REALTIME_CHANNEL = null;
+  }
+}
+
+function selecionarVendedorNecessidade(codigo, nome, supervisorNome){
+  encerrarCanalNecessidade();
+  NECESSIDADE_VENDEDOR = { codigo, nome, supervisorNome };
+  NECESSIDADE_DIA = null;
+  NECESSIDADE_DIA_ROWS = [];
   render();
 }
 
-function supervisorCategories(sup){
-  const cats = [];
-  sup.sections.forEach(sec => sec.categories.forEach(c => { if(!cats.includes(c.label)) cats.push(c.label); }));
-  // o desafio do dia é em COBERTURA: se o supervisor tiver categorias de cobertura,
-  // só elas aparecem como opções de desafio; senão, mostra todas (fallback).
-  const cobCats = cats.filter(c => classifySection(c) === 1);
-  return cobCats.length ? cobCats : cats;
+function voltarVendedorNecessidade(){
+  encerrarCanalNecessidade();
+  NECESSIDADE_VENDEDOR = null;
+  NECESSIDADE_DIA = null;
+  NECESSIDADE_DIA_ROWS = [];
+  render();
+}
+
+function selecionarDiaNecessidade(dia){
+  NECESSIDADE_DIA = dia;
+  NECESSIDADE_DIA_ROWS = [];
+  render();
+  const dataStr = dateForWeekday(dia);
+  loadNecessidadeDia(NECESSIDADE_VENDEDOR.codigo, dataStr);
+  subscribeNecessidadeRealtime(NECESSIDADE_VENDEDOR.codigo, dataStr);
+}
+
+function getNecessidade(clienteId){
+  if(typeof NECESSIDADE_DIA_ROWS === 'undefined') return null;
+  return NECESSIDADE_DIA_ROWS.find(r => r.cliente_id === clienteId) || null;
+}
+
+function necessidadeInput(clienteId, vendedorCodigo, supervisorNome, vendedorNome, dataStr, field, val, editable){
+  const shown = (val !== null && val !== undefined) ? String(val).replace('.',',') : '';
+  if(!editable) return '<td class="num">'+(shown !== '' ? shown : '—')+'</td>';
+  const ci = String(clienteId).replace(/'/g,"\\'");
+  const vc = String(vendedorCodigo).replace(/'/g,"\\'");
+  const sn = supervisorNome.replace(/'/g,"\\'");
+  const vn = vendedorNome.replace(/'/g,"\\'");
+  return '<td class="num"><input type="text" inputmode="decimal" value="'+shown+'" '
+    + 'style="width:80px; text-align:right; border:1px solid var(--line); border-radius:6px; padding:5px 7px; font-family:\'IBM Plex Mono\',monospace; font-size:12.5px; background:#fffdf8;" '
+    + 'onchange="saveNecessidadeField(\''+ci+'\',\''+vc+'\',\''+sn+'\',\''+vn+'\',\''+dataStr+'\',\''+field+'\',this.value)" placeholder="—"></td>';
+}
+
+function necessidadeVendedoresPorSupervisor(){
+  const map = new Map(); // supervisorNome -> Map(vendedorCodigo -> {codigo, nome, supervisorNome, count})
+  (typeof CLIENTES_MASTER !== 'undefined' ? CLIENTES_MASTER : []).forEach(c => {
+    if(!map.has(c.supervisor_nome)) map.set(c.supervisor_nome, new Map());
+    const vmap = map.get(c.supervisor_nome);
+    if(!vmap.has(c.vendedor_codigo)) vmap.set(c.vendedor_codigo, { codigo: c.vendedor_codigo, nome: c.vendedor_nome, supervisorNome: c.supervisor_nome, count: 0 });
+    vmap.get(c.vendedor_codigo).count++;
+  });
+  return map;
 }
 
 function fmtMoney(v){
@@ -1262,76 +1316,104 @@ function renderIncentivoPage(){
 }
 
 function renderCommitmentsPage(){
-  if(!DATA || !DATA.supervisors.length){
-    return '<div class="sup-header"><h2>Necessidade do Dia</h2></div><div class="sup-sub">Sem dados carregados ainda.</div>';
+  const vendedoresPorSup = necessidadeVendedoresPorSupervisor();
+  if(vendedoresPorSup.size === 0){
+    return '<div class="sup-header"><h2>Necessidade do Dia</h2></div><div class="sup-sub">Nenhum cliente importado ainda. Rode o script de importação (Base_Clientes.xlsx) e recarregue a página.</div>';
   }
+
+  if(!NECESSIDADE_VENDEDOR){
+    let html = `
+      <div class="sup-header"><h2>Necessidade do Dia</h2></div>
+      <div class="sup-sub">Escolha um vendedor pra ver os clientes do dia e lançar Desafio (planejado) e Real (vendido) por cliente.</div>
+    `;
+    vendedoresPorSup.forEach((vmap, supNome)=>{
+      const chips = Array.from(vmap.values())
+        .sort((a,b)=> a.nome.localeCompare(b.nome))
+        .map(v => `<button class="cat-chip" onclick="selecionarVendedorNecessidade('${String(v.codigo).replace(/'/g,"\\'")}','${v.nome.replace(/'/g,"\\'")}','${supNome.replace(/'/g,"\\'")}')">${v.nome} <span style="opacity:.6;">(${v.count})</span></button>`)
+        .join('');
+      html += `
+      <div class="section-card">
+        <div class="section-head" onclick="toggleSection(this)">
+          <span class="chev">▾</span>
+          <h3>${supNome}</h3>
+          <span class="n">${vmap.size} vendedores</span>
+        </div>
+        <div class="section-body">
+          <div class="cat-filter">${chips}</div>
+        </div>
+      </div>`;
+    });
+    return html;
+  }
+
+  const { codigo: vendedorCodigo, nome: vendedorNome, supervisorNome } = NECESSIDADE_VENDEDOR;
+  const editable = (typeof canEditNecessidade === 'function') && canEditNecessidade(supervisorNome, vendedorNome);
+
   let html = `
     <div class="sup-header"><h2>Necessidade do Dia</h2></div>
-    <div class="sup-sub">Escolha a categoria do desafio em cada equipe, defina a necessidade de cada vendedor, e lance o resultado no fim do dia. O status calcula sozinho. Cada categoria é um desafio separado — os valores ficam salvos ao trocar de categoria.</div>
+    <div class="sup-sub">
+      <a href="#" onclick="voltarVendedorNecessidade();return false;">← trocar vendedor</a>
+      &nbsp;·&nbsp; <b>${vendedorNome}</b> (${supervisorNome})
+    </div>
   `;
-  DATA.supervisors.forEach(sup=>{
-    const vendors = sup.sections[0] ? sup.sections[0].vendors : [];
-    if(!vendors.length) return;
-    const editable = (typeof canEditCommitment === 'function') && canEditCommitment(sup.sheetName);
-    const cats = supervisorCategories(sup);
-    const activeCat = COMMIT_ACTIVE_CAT[sup.sheetName] || cats[0] || 'GERAL';
-    const sn = sup.sheetName.replace(/'/g,"\\'");
 
-    // quais categorias já têm desafio preenchido (bolinha de marcação nos chips)
-    const catsWithData = new Set(
-      (typeof COMMITMENTS !== 'undefined' ? COMMITMENTS : [])
-        .filter(c => c.supervisor_sheet_name === sup.sheetName && (c.valor !== null || c.resultado !== null))
-        .map(c => c.categoria || 'GERAL')
-    );
+  const dayChips = WEEKDAYS_NECESSIDADE.map(d =>
+    `<button class="cat-chip ${d.key===NECESSIDADE_DIA?'active':''}" onclick="selecionarDiaNecessidade('${d.key}')">${d.label}</button>`
+  ).join('');
+  html += `<div class="cat-filter" style="margin-bottom:16px;">${dayChips}</div>`;
 
-    const chips = cats.map(cat=>{
-      const ct = cat.replace(/'/g,"\\'");
-      const mark = catsWithData.has(cat) ? ' ●' : '';
-      return `<button class="cat-chip ${cat===activeCat?'active':''}" onclick="selectCommitCat('${sn}','${ct}')">${prettyLabel(cat)}${mark}</button>`;
-    }).join('');
+  if(!NECESSIDADE_DIA){
+    html += '<div class="sup-sub">Escolha um dia da semana.</div>';
+    return html;
+  }
 
-    const rows = vendors.map(v=>{
-      const c = getCommitment(sup.sheetName, v.vendedor, activeCat) || {};
-      const nec = (c.valor !== null && c.valor !== undefined) ? Number(c.valor) : null;
-      const res = (c.resultado !== null && c.resultado !== undefined) ? Number(c.resultado) : null;
-      let status = '<span style="color:var(--muted);">—</span>';
-      if(nec !== null && res !== null){
-        status = res >= nec
-          ? '<span style="color:var(--good); font-weight:700;">✓ Conseguiu</span>'
-          : '<span style="color:var(--bad); font-weight:700;">✗ Não atingiu</span>';
-      } else if(nec !== null){
-        status = '<span style="color:var(--warn);">Aguardando resultado</span>';
-      }
-      const vago = isVago(v.vendedor);
-      return '<tr class="'+(vago?'vago-row':'')+'"><td class="name-col">'+v.vendedor+'</td>'
-        + commitmentInput(sup.sheetName, v.vendedor, activeCat, 'valor', nec, editable)
-        + commitmentInput(sup.sheetName, v.vendedor, activeCat, 'resultado', res, editable)
-        + '<td style="text-align:left;">'+status+'</td></tr>';
-    }).join('');
+  const diaInfo = WEEKDAYS_NECESSIDADE.find(d => d.key === NECESSIDADE_DIA);
+  const dataStr = dateForWeekday(NECESSIDADE_DIA);
+  const dataBR = new Date(dataStr + 'T00:00:00').toLocaleDateString('pt-BR');
+  const clientesDoDia = (typeof CLIENTES_MASTER !== 'undefined' ? CLIENTES_MASTER : [])
+    .filter(c => c.vendedor_codigo === vendedorCodigo && c.dia_visita === NECESSIDADE_DIA)
+    .sort((a,b)=> a.fantasia.localeCompare(b.fantasia));
 
-    html += `
-    <div class="section-card">
-      <div class="section-head" onclick="toggleSection(this)">
-        <span class="chev">▾</span>
-        <h3>${sup.name} — desafio: ${prettyLabel(activeCat)}</h3>
-        <span class="n">${vendors.length} vendedores${editable ? ' · você pode editar' : ''}</span>
+  if(clientesDoDia.length === 0){
+    html += `<div class="sup-sub">Nenhum cliente de ${vendedorNome} visita às ${diaInfo.label}s.</div>`;
+    return html;
+  }
+
+  const rows = clientesDoDia.map(c=>{
+    const n = getNecessidade(c.id) || {};
+    const desafio = (n.valor_desafio !== null && n.valor_desafio !== undefined) ? Number(n.valor_desafio) : null;
+    const real = (n.valor_real !== null && n.valor_real !== undefined) ? Number(n.valor_real) : null;
+    return `<tr>
+      <td class="name-col">${c.fantasia}</td>
+      <td>${c.cidade || '—'}</td>
+      <td>${c.canal || '—'}</td>
+      ${necessidadeInput(c.id, vendedorCodigo, supervisorNome, vendedorNome, dataStr, 'valor_desafio', desafio, editable)}
+      ${necessidadeInput(c.id, vendedorCodigo, supervisorNome, vendedorNome, dataStr, 'valor_real', real, editable)}
+    </tr>`;
+  }).join('');
+
+  html += `
+  <div class="section-card">
+    <div class="section-head" onclick="toggleSection(this)">
+      <span class="chev">▾</span>
+      <h3>${diaInfo.label}-feira — ${dataBR}</h3>
+      <span class="n">${clientesDoDia.length} clientes${editable ? ' · você pode editar' : ''}</span>
+    </div>
+    <div class="section-body">
+      <div class="table-scroll">
+        <table class="data">
+          <thead><tr>
+            <th class="name-col" style="min-width:190px;">Cliente</th>
+            <th>Cidade</th>
+            <th>Canal</th>
+            <th style="min-width:110px;">Desafio</th>
+            <th style="min-width:110px;">Real</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
       </div>
-      <div class="section-body">
-        <div class="cat-filter">${chips}</div>
-        <div class="table-scroll">
-          <table class="data">
-            <thead><tr>
-              <th class="name-col" style="min-width:190px;">Vendedor</th>
-              <th style="min-width:110px;">Necessidade</th>
-              <th style="min-width:110px;">Resultado do Dia</th>
-              <th style="min-width:150px; text-align:left;">Status</th>
-            </tr></thead>
-            <tbody>${rows}</tbody>
-          </table>
-        </div>
-      </div>
-    </div>`;
-  });
+    </div>
+  </div>`;
   return html;
 }
 

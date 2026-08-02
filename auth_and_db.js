@@ -17,10 +17,16 @@ function todayStr(){
 
 let COMMITMENTS = [];             // necessidade do dia definida pelos supervisores
 let INCENTIVOS = [];               // prêmio/incentivo (aba "Painel Ganho")
-function canEditCommitment(sheetName){
-  return CURRENT_ROLE === 'admin' || (CURRENT_ROLE === 'supervisor' && CURRENT_SUP_SHEET === sheetName);
+let CLIENTES_MASTER = [];          // base de clientes importada de Base_Clientes.xlsx
+let NECESSIDADE_DIA_ROWS = [];     // linhas de necessidade_dia do vendedor+dia selecionados no momento
+function canEditNecessidade(supervisorNome, vendedorNome){
+  if(CURRENT_ROLE === 'admin') return true;
+  if(CURRENT_ROLE === 'supervisor') return CURRENT_SUP_SHEET === 'Fundamentos ' + supervisorNome;
+  if(CURRENT_ROLE === 'vendedor') return CURRENT_VENDEDOR_NOME === vendedorNome;
+  return false;
 }
 let REALTIME_CHANNEL = null;
+let NECESSIDADE_REALTIME_CHANNEL = null;
 const POLL_FALLBACK_MS = 25000;
 
 function isConfigured(){
@@ -79,6 +85,7 @@ async function handleLoginSubmit(e){
 
 async function handleLogout(){
   if(REALTIME_CHANNEL) db.removeChannel(REALTIME_CHANNEL);
+  if(NECESSIDADE_REALTIME_CHANNEL) db.removeChannel(NECESSIDADE_REALTIME_CHANNEL);
   await db.auth.signOut();
   location.reload();
 }
@@ -129,6 +136,11 @@ async function loadDataFromDB(){
       const { data: iRows } = await db.from('incentivos').select('*');
       incentivoRows = iRows || [];
     }catch(e){ /* tabela pode não existir ainda — segue sem o recurso */ }
+    let clienteRows = [];
+    try{
+      const { data: clRows } = await db.from('clientes').select('*');
+      clienteRows = clRows || [];
+    }catch(e){ /* tabela pode não existir ainda — segue sem o recurso */ }
 
     const supervisors = reconstructSupervisors(vsRows || []);
 
@@ -152,6 +164,7 @@ async function loadDataFromDB(){
     CLIENTS = clientRows || [];
     COMMITMENTS = commitRows;
     INCENTIVOS = incentivoRows;
+    CLIENTES_MASTER = clienteRows;
     const SPECIAL_VIEWS = ['OVERVIEW','COMMITMENTS','INCENTIVO'];
     if(!ACTIVE_SUP || (!SPECIAL_VIEWS.includes(ACTIVE_SUP) && !DATA.supervisors.find(s => s.sheetName === ACTIVE_SUP))){
       ACTIVE_SUP = DATA.supervisors[0].sheetName;
@@ -179,44 +192,71 @@ function subscribeRealtime(){
     .on('postgres_changes', { event: '*', schema: 'public', table: 'daily_commitments' }, scheduleReload)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'incentivos' }, scheduleReload)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'meta' }, scheduleReload)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'clientes' }, scheduleReload)
     .subscribe();
 }
 
 /* =====================================================================
-   COMPROMISSO/NECESSIDADE DO DIA — editável pelo supervisor (do próprio
-   time) e pelo admin. Salva ao sair do campo.
+   NECESSIDADE DO DIA POR CLIENTE — editável pelo admin, pelo supervisor do
+   time e pelo próprio vendedor. Busca sob demanda (só quando um vendedor +
+   dia é selecionado) e salva ao sair do campo.
 ===================================================================== */
-async function saveCommitmentField(sheetName, vendedorNome, categoria, field, valor){
-  if(!canEditCommitment(sheetName)) return;
-  if(field !== 'valor' && field !== 'resultado') return;
-  categoria = categoria || 'GERAL';
-  const num = valor === '' ? null : Number(String(valor).replace(',','.'));
+async function loadNecessidadeDia(vendedorCodigo, dataStr){
+  try{
+    const { data, error } = await db.from('necessidade_dia').select('*')
+      .eq('vendedor_codigo', vendedorCodigo).eq('data', dataStr);
+    if(error) throw error;
+    NECESSIDADE_DIA_ROWS = data || [];
+  }catch(e){
+    console.error(e);
+    NECESSIDADE_DIA_ROWS = [];
+    showStatus('✗ Não foi possível carregar a necessidade do dia: ' + (e.message || e) + '. Se a tabela ainda não existe, rode o arquivo schema_clientes_necessidade.sql no Supabase.', true);
+  }
+  render();
+}
+
+async function saveNecessidadeField(clienteId, vendedorCodigo, supervisorNome, vendedorNome, dataStr, field, valor){
+  if(!canEditNecessidade(supervisorNome, vendedorNome)) return;
+  if(field !== 'valor_desafio' && field !== 'valor_real') return;
+  const num = valor === '' ? null : Number(String(valor).replace(',', '.'));
   if(valor !== '' && isNaN(num)) return;
   try{
     const payload = {
-      supervisor_sheet_name: sheetName,
-      vendedor_nome: vendedorNome,
-      categoria: categoria,
-      data: todayStr(),
+      vendedor_codigo: vendedorCodigo,
+      cliente_id: clienteId,
+      data: dataStr,
       updated_at: new Date().toISOString(),
       updated_by: CURRENT_USER.id
     };
     payload[field] = num;
-    // preserva o outro campo se já existir localmente
-    const existing = COMMITMENTS.find(c => c.supervisor_sheet_name === sheetName && c.vendedor_nome === vendedorNome && (c.categoria || 'GERAL') === categoria);
+    const existing = NECESSIDADE_DIA_ROWS.find(r => r.cliente_id === clienteId && r.vendedor_codigo === vendedorCodigo && r.data === dataStr);
     if(existing){
-      const other = field === 'valor' ? 'resultado' : 'valor';
+      const other = field === 'valor_desafio' ? 'valor_real' : 'valor_desafio';
       if(existing[other] !== null && existing[other] !== undefined) payload[other] = existing[other];
     }
-    const { error } = await db.from('daily_commitments').upsert(payload, { onConflict: 'supervisor_sheet_name,vendedor_nome,categoria,data' });
+    const { error } = await db.from('necessidade_dia').upsert(payload, { onConflict: 'vendedor_codigo,cliente_id,data' });
     if(error) throw error;
     if(existing) existing[field] = num;
-    else COMMITMENTS.push({ supervisor_sheet_name: sheetName, vendedor_nome: vendedorNome, categoria: categoria, data: todayStr(), valor: field==='valor'?num:null, resultado: field==='resultado'?num:null });
-    render(); // atualiza o status (✓/✗) imediatamente
+    else NECESSIDADE_DIA_ROWS.push({ vendedor_codigo: vendedorCodigo, cliente_id: clienteId, data: dataStr, valor_desafio: field==='valor_desafio'?num:null, valor_real: field==='valor_real'?num:null });
+    render();
   }catch(e){
     console.error(e);
-    showStatus('✗ Não foi possível salvar: ' + (e.message || e) + '. Se a tabela ainda não existe (ou está sem a coluna categoria), rode o arquivo schema_compromisso_dia.sql no Supabase.', true);
+    showStatus('✗ Não foi possível salvar: ' + (e.message || e) + '. Se a tabela ainda não existe, rode o arquivo schema_clientes_necessidade.sql no Supabase.', true);
   }
+}
+
+let NECESSIDADE_RELOAD_TIMER = null;
+function subscribeNecessidadeRealtime(vendedorCodigo, dataStr){
+  if(NECESSIDADE_REALTIME_CHANNEL){ db.removeChannel(NECESSIDADE_REALTIME_CHANNEL); NECESSIDADE_REALTIME_CHANNEL = null; }
+  NECESSIDADE_REALTIME_CHANNEL = db.channel('necessidade-dia-' + vendedorCodigo + '-' + dataStr)
+    .on('postgres_changes', {
+      event: '*', schema: 'public', table: 'necessidade_dia',
+      filter: 'vendedor_codigo=eq.' + vendedorCodigo
+    }, () => {
+      clearTimeout(NECESSIDADE_RELOAD_TIMER);
+      NECESSIDADE_RELOAD_TIMER = setTimeout(() => loadNecessidadeDia(vendedorCodigo, dataStr), 900);
+    })
+    .subscribe();
 }
 
 /* =====================================================================

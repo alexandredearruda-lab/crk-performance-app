@@ -1,0 +1,6 @@
+node_modules/
+.env
+scripts/.env
+
+# Dado real de cliente — não deve ir pro git (modelo_planilha.xlsx continua versionado)
+Base Clientes.xlsx
