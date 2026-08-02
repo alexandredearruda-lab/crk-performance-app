@@ -13,23 +13,25 @@
 <style>
 
   :root{
+    /* Identidade visual Heineken — ver resumo de mapeamento no PR/commit */
     --ink:#211a12;
     --paper:#faf6ee;
     --paper-2:#f2ebdd;
-    --line: #e3d9c4;
-    --malt-900:#1a140d;
-    --malt-800:#241b12;
-    --malt-700:#332415;
-    --copper:#b8722e;
-    --copper-light:#e0a45c;
-    --gold:#c9a13b;
-    --good:#3f7d5c;
-    --good-bg:#e4efe6;
-    --warn:#b3822c;
+    --line: #C3C3C3;              /* Heineken Silver — bordas/divisores */
+    --malt-900:#205527;           /* Heineken Corporate Green — headers/navbar/fundos escuros */
+    --malt-800:#205527;
+    --malt-700:#205527;
+    --copper:#008200;             /* Heineken Green — botões, links, destaque/CTA */
+    --copper-light:#008200;
+    --gold:#C3C3C3;               /* não usado no momento; alinhado ao Silver por consistência */
+    --good:#008200;               /* Heineken Green — status "bom" */
+    --good-bg:#E3F5E3;
+    --warn:#b3822c;               /* fora da paleta oficial — mantido como estado intermediário distinto de erro */
     --warn-bg:#f6ecd6;
-    --bad:#a8402f;
-    --bad-bg:#f6e2dd;
-    --muted:#8a7c66;
+    --bad:#FF2B00;                /* Heineken Red — alertas/erros (textos grandes, ícones, fundos) */
+    --bad-bg:#FFE5DE;
+    --bad-text:#CC2200;           /* Red escurecido — só p/ texto pequeno, pro contraste WCAG AA */
+    --muted:#6E6E6E;              /* Silver escurecido — texto secundário legível (Silver puro falha WCAG AA em texto) */
   }
   *{box-sizing:border-box;}
   body{
@@ -39,7 +41,7 @@
     font-family:'Inter',sans-serif;
     -webkit-font-smoothing:antialiased;
   }
-  ::selection{ background: var(--copper-light); color: var(--malt-900); }
+  ::selection{ background: var(--copper-light); color: #FFFFFF; }
 
   /* ---------- Shell layout ---------- */
   #app{ display:flex; min-height:100vh; }
@@ -47,13 +49,13 @@
   #sidebar{
     width:220px; flex:0 0 220px;
     background: linear-gradient(180deg, var(--malt-900), var(--malt-800) 70%, var(--malt-700));
-    color:#e9dfcd;
+    color:#FFFFFF;
     display:flex; flex-direction:column;
     position:sticky; top:0; height:100vh;
   }
   .brand{
     padding:22px 20px 14px 20px;
-    border-bottom:1px solid rgba(233,223,205,0.12);
+    border-bottom:1px solid rgba(255,255,255,0.12);
   }
   .brand-logo{
     height:44px; width:auto; max-width:150px; object-fit:contain;
@@ -67,7 +69,7 @@
   }
   .brand h1{
     font-family:'Fraunces',serif; font-weight:600; font-size:20px; line-height:1.15;
-    margin:0; color:#fbf3e4;
+    margin:0; color:#FFFFFF;
   }
   #sup-list{
     flex:1; overflow-y:auto; padding:10px 10px 10px;
@@ -77,27 +79,27 @@
     all:unset; cursor:pointer;
     display:flex; align-items:center; gap:10px;
     padding:9px 10px; border-radius:8px;
-    font-size:13.5px; font-weight:500; color:#d9cdb4;
+    font-size:13.5px; font-weight:500; color:#C3C3C3;
     transition:background .12s ease, color .12s ease;
   }
-  .sup-btn:hover{ background:rgba(233,223,205,0.08); color:#fbf3e4; }
-  .sup-btn.active{ background:var(--copper); color:#fff8ee; }
+  .sup-btn:hover{ background:rgba(255,255,255,0.08); color:#FFFFFF; }
+  .sup-btn.active{ background:var(--copper); color:#FFFFFF; }
   .sup-avatar{
     width:26px;height:26px;border-radius:50%;
-    background:rgba(233,223,205,0.14);
+    background:rgba(255,255,255,0.14);
     display:flex;align-items:center;justify-content:center;
     font-family:'IBM Plex Mono',monospace; font-size:11px; font-weight:600;
     flex:0 0 26px;
   }
   .sup-btn.active .sup-avatar{ background:rgba(255,255,255,0.22); }
   .sup-count{
-    margin-left:auto; font-family:'IBM Plex Mono',monospace; font-size:10.5px; color:#a9987d;
+    margin-left:auto; font-family:'IBM Plex Mono',monospace; font-size:10.5px; color:#C3C3C3;
   }
-  .sup-btn.active .sup-count{ color:#fbe3c4; }
+  .sup-btn.active .sup-count{ color:#FFFFFF; }
 
   #sidebar-foot{
-    padding:14px 20px 18px; border-top:1px solid rgba(233,223,205,0.12);
-    font-size:11px; color:#9c8c72; line-height:1.5;
+    padding:14px 20px 18px; border-top:1px solid rgba(255,255,255,0.12);
+    font-size:11px; color:#C3C3C3; line-height:1.5;
   }
 
   #main{ flex:1; min-width:0; display:flex; flex-direction:column; }
@@ -125,8 +127,8 @@
     cursor:pointer; font-family:'Inter',sans-serif; transition:transform .08s ease, box-shadow .12s ease;
   }
   .btn:active{ transform:translateY(1px); }
-  .btn-primary{ background:var(--copper); color:#fff8ee; box-shadow:0 1px 0 rgba(0,0,0,.08); }
-  .btn-primary:hover{ background:#a6631f; }
+  .btn-primary{ background:var(--copper); color:#FFFFFF; box-shadow:0 1px 0 rgba(0,0,0,.08); }
+  .btn-primary:hover{ background:#205527; }
   #file-input{ display:none; }
   #upload-status{ font-size:11.5px; color:var(--muted); font-family:'IBM Plex Mono',monospace; }
 
@@ -193,7 +195,7 @@
     border-bottom:1px solid var(--line);
   }
   table.data thead tr.cat-row th{
-    background:var(--malt-900); color:#f1e6d2; font-family:'Inter',sans-serif;
+    background:var(--malt-900); color:#FFFFFF; font-family:'Inter',sans-serif;
     font-size:10.5px; letter-spacing:.06em; text-transform:uppercase; font-weight:700;
     padding:9px 12px; border-bottom:none; text-align:center;
     top:0;
@@ -217,8 +219,8 @@
   }
   table.data tbody tr td{ border-bottom:1px solid var(--line); }
   table.data tbody tr:last-child td{ border-bottom:none; }
-  table.data tbody tr:hover td{ background:#fbf5e9; }
-  table.data tbody tr:hover td.name-col{ background:#fbf5e9; }
+  table.data tbody tr:hover td{ background:#F0F0F0; }
+  table.data tbody tr:hover td.name-col{ background:#F0F0F0; }
   table.data tbody tr.agg-total td{ background:var(--paper-2); font-weight:700; border-top:2px solid var(--line); }
   table.data tbody tr.agg-total td.name-col{ background:var(--paper-2); }
   table.data tbody tr.agg-company td{ color:var(--muted); font-style:italic; }
@@ -232,7 +234,7 @@
   .pct-bar > span{ display:block; height:100%; }
   .pct-good{ color:var(--good); } .pct-good .pct-bar>span{ background:var(--good); }
   .pct-warn{ color:var(--warn); } .pct-warn .pct-bar>span{ background:var(--warn); }
-  .pct-bad{ color:var(--bad); } .pct-bad .pct-bar>span{ background:var(--bad); }
+  .pct-bad{ color:var(--bad-text); } .pct-bad .pct-bar>span{ background:var(--bad); }
 
   .legend{ display:flex; gap:16px; align-items:center; margin:14px 0 20px; flex-wrap:wrap; font-size:11.5px; color:var(--muted); }
   .legend .dot{ width:8px; height:8px; border-radius:50%; display:inline-block; margin-right:5px; }
@@ -280,7 +282,7 @@
   table.overview td{ padding:11px 14px; border-bottom:1px solid var(--line); }
   table.overview tr:last-child td{ border-bottom:none; }
   table.overview tr.ov-row{ cursor:pointer; }
-  table.overview tr.ov-row:hover td{ background:#fbf5e9; }
+  table.overview tr.ov-row:hover td{ background:#F0F0F0; }
   /* ---------- Filtro de categorias ---------- */
   .cat-filter{ display:flex; flex-wrap:wrap; gap:6px; padding:14px 18px 0; }
   .cat-chip{
@@ -289,7 +291,7 @@
     font-family:'Inter',sans-serif; transition:all .1s ease;
   }
   .cat-chip:hover{ border-color:var(--copper); color:var(--ink); }
-  .cat-chip.active{ background:var(--malt-900); color:#f1e6d2; border-color:var(--malt-900); }
+  .cat-chip.active{ background:var(--malt-900); color:#FFFFFF; border-color:var(--malt-900); }
   .cat-chip-all{ font-weight:700; }
 
   table.overview td.ov-name{ font-weight:600; font-family:'Fraunces',serif; font-size:15px; }
@@ -329,6 +331,11 @@
     table.data th, table.data td{ padding:7px 8px; }
     .table-scroll{ -webkit-overflow-scrolling:touch; }
     .pct-bar{ width:22px; }
+
+    /* alvos de toque um pouco maiores no celular */
+    .cat-chip{ padding:8px 14px; font-size:12.5px; }
+    .btn{ min-height:40px; }
+    #search, .login-field input{ font-size:16px; } /* evita zoom automático do Safari ao focar */
   }
 
   @media (max-width: 480px){
@@ -336,6 +343,15 @@
     .sup-header h2{ font-size:18px; }
     .kpi-card .kpi-value{ font-size:20px; }
     table.data{ font-size:11px; }
+  }
+
+  /* Necessidade do Dia: em telas estreitas, some com Cidade/Canal pra Cliente,
+     Desafio e Real caberem sem precisar rolar a tabela de lado — é o fluxo
+     mais usado no celular. */
+  @media (max-width: 640px){
+    .necessidade-clientes-table .col-cidade,
+    .necessidade-clientes-table .col-canal{ display:none; }
+    .necessidade-clientes-table input{ font-size:16px; } /* evita zoom automático do Safari */
   }
 
 
@@ -360,7 +376,7 @@
   .login-field input:focus{ outline:2px solid var(--copper-light); outline-offset:1px; }
   #login-submit{ width:100%; margin-top:6px; padding:11px; }
   #login-error{
-    display:none; background:var(--bad-bg); color:var(--bad); border-radius:8px;
+    display:none; background:var(--bad-bg); color:var(--bad-text); border-radius:8px;
     padding:9px 12px; font-size:12.5px; margin-bottom:14px;
   }
   #login-config-warning{
@@ -1448,8 +1464,8 @@ function renderCommitmentsPage(){
     const real = (n.valor_real !== null && n.valor_real !== undefined) ? Number(n.valor_real) : null;
     return `<tr>
       <td class="name-col">${c.fantasia}</td>
-      <td>${c.cidade || '—'}</td>
-      <td>${c.canal || '—'}</td>
+      <td class="col-cidade">${c.cidade || '—'}</td>
+      <td class="col-canal">${c.canal || '—'}</td>
       ${necessidadeInput(c.id, vendedorCodigo, supervisorNome, vendedorNome, dataStr, 'valor_desafio', desafio, editable)}
       ${necessidadeInput(c.id, vendedorCodigo, supervisorNome, vendedorNome, dataStr, 'valor_real', real, editable)}
     </tr>`;
@@ -1464,11 +1480,11 @@ function renderCommitmentsPage(){
     </div>
     <div class="section-body">
       <div class="table-scroll">
-        <table class="data">
+        <table class="data necessidade-clientes-table">
           <thead><tr>
             <th class="name-col" style="min-width:190px;">Cliente</th>
-            <th>Cidade</th>
-            <th>Canal</th>
+            <th class="col-cidade">Cidade</th>
+            <th class="col-canal">Canal</th>
             <th style="min-width:110px;">Desafio</th>
             <th style="min-width:110px;">Real</th>
           </tr></thead>

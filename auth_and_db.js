@@ -39,9 +39,9 @@ function showStatus(msg, isError){
   const bar = document.getElementById('diag-bar');
   if(!msg){ bar.style.display='none'; return; }
   bar.style.display = 'block';
-  bar.style.background = isError ? '#fdf2ef' : '#eef6f0';
-  bar.style.color = isError ? '#8a3a2a' : '#2e5d40';
-  bar.style.borderBottomColor = isError ? '#e8c9c0' : '#c8e0cf';
+  bar.style.background = isError ? '#FFE5DE' : '#E3F5E3';
+  bar.style.color = isError ? '#CC2200' : '#205527';
+  bar.style.borderBottomColor = isError ? '#FFC9BA' : '#BEE0C4';
   bar.textContent = msg;
 }
 
