@@ -1,0 +1,1796 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="format-detection" content="telephone=no, date=no, address=no, email=no">
+<meta name="msapplication-tap-highlight" content="no">
+<title>Painel de Produtividade · Comercial</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+
+  :root{
+    --ink:#211a12;
+    --paper:#faf6ee;
+    --paper-2:#f2ebdd;
+    --line: #e3d9c4;
+    --malt-900:#1a140d;
+    --malt-800:#241b12;
+    --malt-700:#332415;
+    --copper:#b8722e;
+    --copper-light:#e0a45c;
+    --gold:#c9a13b;
+    --good:#3f7d5c;
+    --good-bg:#e4efe6;
+    --warn:#b3822c;
+    --warn-bg:#f6ecd6;
+    --bad:#a8402f;
+    --bad-bg:#f6e2dd;
+    --muted:#8a7c66;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--paper);
+    color:var(--ink);
+    font-family:'Inter',sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  ::selection{ background: var(--copper-light); color: var(--malt-900); }
+
+  /* ---------- Shell layout ---------- */
+  #app{ display:flex; min-height:100vh; }
+
+  #sidebar{
+    width:220px; flex:0 0 220px;
+    background: linear-gradient(180deg, var(--malt-900), var(--malt-800) 70%, var(--malt-700));
+    color:#e9dfcd;
+    display:flex; flex-direction:column;
+    position:sticky; top:0; height:100vh;
+  }
+  .brand{
+    padding:22px 20px 14px 20px;
+    border-bottom:1px solid rgba(233,223,205,0.12);
+  }
+  .brand-logo{
+    height:44px; width:auto; max-width:150px; object-fit:contain;
+    display:block; margin-bottom:14px;
+    filter: drop-shadow(0 1px 2px rgba(0,0,0,0.3));
+  }
+  .brand .eyebrow{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:10px; letter-spacing:.14em; text-transform:uppercase;
+    color:var(--copper-light); margin-bottom:6px;
+  }
+  .brand h1{
+    font-family:'Fraunces',serif; font-weight:600; font-size:20px; line-height:1.15;
+    margin:0; color:#fbf3e4;
+  }
+  #sup-list{
+    flex:1; overflow-y:auto; padding:10px 10px 10px;
+    display:flex; flex-direction:column; gap:3px;
+  }
+  .sup-btn{
+    all:unset; cursor:pointer;
+    display:flex; align-items:center; gap:10px;
+    padding:9px 10px; border-radius:8px;
+    font-size:13.5px; font-weight:500; color:#d9cdb4;
+    transition:background .12s ease, color .12s ease;
+  }
+  .sup-btn:hover{ background:rgba(233,223,205,0.08); color:#fbf3e4; }
+  .sup-btn.active{ background:var(--copper); color:#fff8ee; }
+  .sup-avatar{
+    width:26px;height:26px;border-radius:50%;
+    background:rgba(233,223,205,0.14);
+    display:flex;align-items:center;justify-content:center;
+    font-family:'IBM Plex Mono',monospace; font-size:11px; font-weight:600;
+    flex:0 0 26px;
+  }
+  .sup-btn.active .sup-avatar{ background:rgba(255,255,255,0.22); }
+  .sup-count{
+    margin-left:auto; font-family:'IBM Plex Mono',monospace; font-size:10.5px; color:#a9987d;
+  }
+  .sup-btn.active .sup-count{ color:#fbe3c4; }
+
+  #sidebar-foot{
+    padding:14px 20px 18px; border-top:1px solid rgba(233,223,205,0.12);
+    font-size:11px; color:#9c8c72; line-height:1.5;
+  }
+
+  #main{ flex:1; min-width:0; display:flex; flex-direction:column; }
+
+  /* ---------- Topbar ---------- */
+  #topbar{
+    position:sticky; top:0; z-index:20;
+    background:var(--paper); border-bottom:1px solid var(--line);
+    padding:16px 28px; display:flex; align-items:center; gap:18px; flex-wrap:wrap;
+  }
+  #topbar .meta{
+    display:flex; gap:18px; flex-wrap:wrap; font-size:12px; color:var(--muted);
+    font-family:'IBM Plex Mono',monospace;
+  }
+  #topbar .meta b{ color:var(--ink); font-weight:600; }
+  .spacer{ flex:1; }
+  #search{
+    border:1px solid var(--line); background:#fff; border-radius:8px;
+    padding:8px 12px; font-size:13px; font-family:'Inter',sans-serif; color:var(--ink);
+    width:200px;
+  }
+  #search:focus{ outline:2px solid var(--copper-light); outline-offset:1px; }
+  .btn{
+    border:none; border-radius:8px; padding:9px 16px; font-size:13px; font-weight:600;
+    cursor:pointer; font-family:'Inter',sans-serif; transition:transform .08s ease, box-shadow .12s ease;
+  }
+  .btn:active{ transform:translateY(1px); }
+  .btn-primary{ background:var(--copper); color:#fff8ee; box-shadow:0 1px 0 rgba(0,0,0,.08); }
+  .btn-primary:hover{ background:#a6631f; }
+  #file-input{ display:none; }
+  #upload-status{ font-size:11.5px; color:var(--muted); font-family:'IBM Plex Mono',monospace; }
+
+  /* ---------- Empty state ---------- */
+  #empty-state{
+    margin:auto; text-align:center; padding:60px 20px; max-width:460px;
+  }
+  #empty-state .glyph{
+    width:64px;height:64px;border-radius:16px;margin:0 auto 18px;
+    background:var(--paper-2); border:1px solid var(--line);
+    display:flex;align-items:center;justify-content:center;
+    font-size:26px;
+  }
+  #empty-state h2{ font-family:'Fraunces',serif; font-size:22px; margin:0 0 8px; }
+  #empty-state p{ color:var(--muted); font-size:13.5px; line-height:1.6; margin:0 0 20px;}
+
+  /* ---------- Content ---------- */
+  #content{ padding:22px 28px 60px; flex:1; }
+  .sup-header{
+    display:flex; align-items:baseline; gap:14px; margin-bottom:4px; flex-wrap:wrap;
+  }
+  .sup-header h2{
+    font-family:'Fraunces',serif; font-size:26px; font-weight:600; margin:0;
+  }
+  .sup-header .tag{
+    font-family:'IBM Plex Mono',monospace; font-size:11px; color:var(--muted);
+    background:var(--paper-2); border:1px solid var(--line); padding:3px 9px; border-radius:20px;
+  }
+  .sup-sub{ color:var(--muted); font-size:13px; margin:2px 0 22px; }
+
+  .section-card{
+    background:#fff; border:1px solid var(--line); border-radius:12px;
+    margin-bottom:18px; overflow:hidden;
+  }
+  .section-head{
+    display:flex; align-items:center; gap:10px; cursor:pointer; user-select:none;
+    padding:14px 18px; background:var(--paper-2); border-bottom:1px solid var(--line);
+  }
+  .section-head .chev{
+    font-size:11px; color:var(--copper); transition:transform .15s ease; flex:0 0 auto;
+  }
+  .section-head.collapsed .chev{ transform:rotate(-90deg); }
+  .section-head h3{
+    font-family:'Fraunces',serif; font-weight:600; font-size:15.5px; margin:0; flex:1;
+  }
+  .section-head .n{
+    font-family:'IBM Plex Mono',monospace; font-size:11px; color:var(--muted);
+  }
+  .table-scroll{ overflow-x:auto; }
+  .section-body.collapsed{ display:none; }
+
+  table.data{
+    border-collapse:separate; border-spacing:0;
+    font-size:12.5px; width:100%;
+  }
+  table.data th, table.data td{
+    padding:8px 12px; white-space:nowrap; border-bottom:1px solid var(--line);
+    text-align:right;
+  }
+  table.data thead th{
+    background:#fff; font-family:'Inter',sans-serif; font-weight:600; font-size:10px;
+    text-transform:uppercase; letter-spacing:.05em; color:var(--muted);
+    position:sticky; top:0; z-index:2;
+    border-bottom:1px solid var(--line);
+  }
+  table.data thead tr.cat-row th{
+    background:var(--malt-900); color:#f1e6d2; font-family:'Inter',sans-serif;
+    font-size:10.5px; letter-spacing:.06em; text-transform:uppercase; font-weight:700;
+    padding:9px 12px; border-bottom:none; text-align:center;
+    top:0;
+  }
+  table.data thead tr.cat-row th:not(.name-col):not(:nth-child(2)):not(:nth-child(3)){
+    border-left:2px solid var(--copper);
+  }
+  table.data thead tr.field-row th{ top:33px; padding-top:6px; padding-bottom:6px; }
+  table.data thead tr.field-row th.group-start,
+  table.data tbody td.group-start{
+    border-left:2px solid var(--line);
+  }
+  table.data td.name-col, table.data th.name-col{
+    text-align:left; position:sticky; left:0; background:#fff; z-index:3;
+    font-weight:600; box-shadow:2px 0 6px -3px rgba(0,0,0,0.12);
+  }
+  table.data thead th.name-col{ z-index:4; background:#fff; }
+  table.data thead tr.cat-row th.name-col{ background:var(--malt-900); }
+  table.data td.setor-col, table.data th.setor-col{
+    text-align:left; position:sticky; left:0; background:#fff; z-index:3;
+  }
+  table.data tbody tr td{ border-bottom:1px solid var(--line); }
+  table.data tbody tr:last-child td{ border-bottom:none; }
+  table.data tbody tr:hover td{ background:#fbf5e9; }
+  table.data tbody tr:hover td.name-col{ background:#fbf5e9; }
+  table.data tbody tr.agg-total td{ background:var(--paper-2); font-weight:700; border-top:2px solid var(--line); }
+  table.data tbody tr.agg-total td.name-col{ background:var(--paper-2); }
+  table.data tbody tr.agg-company td{ color:var(--muted); font-style:italic; }
+  table.data tbody tr.agg-company td.name-col{ color:var(--muted); background:#fff; }
+
+  .num{ font-family:'IBM Plex Mono',monospace; color:var(--ink); }
+  table.data td{ color:var(--ink); }
+  table.data a{ color:inherit !important; text-decoration:none !important; }
+  .pct-cell{ display:flex; align-items:center; gap:6px; justify-content:flex-end; }
+  .pct-bar{ width:34px; height:5px; border-radius:3px; background:var(--line); overflow:hidden; flex:0 0 auto; }
+  .pct-bar > span{ display:block; height:100%; }
+  .pct-good{ color:var(--good); } .pct-good .pct-bar>span{ background:var(--good); }
+  .pct-warn{ color:var(--warn); } .pct-warn .pct-bar>span{ background:var(--warn); }
+  .pct-bad{ color:var(--bad); } .pct-bad .pct-bar>span{ background:var(--bad); }
+
+  .legend{ display:flex; gap:16px; align-items:center; margin:14px 0 20px; flex-wrap:wrap; font-size:11.5px; color:var(--muted); }
+  .legend .dot{ width:8px; height:8px; border-radius:50%; display:inline-block; margin-right:5px; }
+
+  #no-match{ text-align:center; color:var(--muted); padding:40px; font-size:13px; display:none; }
+
+  /* ---------- Toggle switch (detalhes) ---------- */
+  .toggle-wrap{ display:flex; align-items:center; gap:7px; font-size:12px; color:var(--muted); }
+  .toggle-wrap input{ accent-color:var(--copper); width:14px;height:14px; }
+  .btn-ghost{
+    background:#fff; color:var(--ink); border:1px solid var(--line);
+    border-radius:8px; padding:9px 14px; font-size:13px; font-weight:600; cursor:pointer;
+  }
+  .btn-ghost:hover{ background:var(--paper-2); }
+
+
+  /* ---------- Resumo cards ---------- */
+  .kpi-row{ display:flex; gap:14px; flex-wrap:wrap; margin-bottom:20px; }
+  .kpi-card{
+    flex:1 1 200px; background:#fff; border:1px solid var(--line); border-radius:12px;
+    padding:14px 16px; min-width:190px;
+  }
+  .kpi-card .kpi-label{ font-size:11.5px; color:var(--muted); font-weight:600; margin-bottom:8px; }
+  .kpi-card .kpi-value{ font-family:'Fraunces',serif; font-size:28px; font-weight:600; line-height:1; }
+  .kpi-card .kpi-sub{ font-size:11px; color:var(--muted); margin-top:6px; }
+  .kpi-card.kpi-good .kpi-value{ color:var(--good); }
+  .kpi-card.kpi-warn .kpi-value{ color:var(--warn); }
+  .kpi-card.kpi-bad .kpi-value{ color:var(--bad); }
+
+  /* ---------- Ranking / sort ---------- */
+  th.sortable{ cursor:pointer; }
+  th.sortable:hover{ color:var(--copper-light) !important; }
+  .sort-btn{
+    all:unset; cursor:pointer; font-size:11px; font-weight:600; color:var(--copper);
+    display:inline-flex; align-items:center; gap:4px; margin-left:auto;
+  }
+  .sort-btn:hover{ text-decoration:underline; }
+
+  /* ---------- VAGO rows ---------- */
+  tr.vago-row td{ color:var(--muted) !important; font-style:italic; opacity:.75; }
+
+  /* ---------- Visão geral ---------- */
+  table.overview{ border-collapse:separate; border-spacing:0; width:100%; font-size:13px; background:#fff; border:1px solid var(--line); border-radius:12px; overflow:hidden; }
+  table.overview th{ text-align:left; background:var(--paper-2); font-size:10.5px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); padding:10px 14px; border-bottom:1px solid var(--line); }
+  table.overview td{ padding:11px 14px; border-bottom:1px solid var(--line); }
+  table.overview tr:last-child td{ border-bottom:none; }
+  table.overview tr.ov-row{ cursor:pointer; }
+  table.overview tr.ov-row:hover td{ background:#fbf5e9; }
+  /* ---------- Filtro de categorias ---------- */
+  .cat-filter{ display:flex; flex-wrap:wrap; gap:6px; padding:14px 18px 0; }
+  .cat-chip{
+    border:1px solid var(--line); background:#fff; border-radius:20px;
+    padding:5px 12px; font-size:11.5px; cursor:pointer; color:var(--muted);
+    font-family:'Inter',sans-serif; transition:all .1s ease;
+  }
+  .cat-chip:hover{ border-color:var(--copper); color:var(--ink); }
+  .cat-chip.active{ background:var(--malt-900); color:#f1e6d2; border-color:var(--malt-900); }
+  .cat-chip-all{ font-weight:700; }
+
+  table.overview td.ov-name{ font-weight:600; font-family:'Fraunces',serif; font-size:15px; }
+
+  @media (max-width: 860px){
+    #sidebar{ position:relative; width:100%; height:auto; flex:none; }
+    #app{ flex-direction:column; }
+    .brand{ padding:16px 16px 10px; }
+    .brand h1{ font-size:17px; }
+    #sup-list-fixed, #sup-list{
+      flex-direction:row; overflow-x:auto; -webkit-overflow-scrolling:touch;
+      padding:8px 10px; gap:6px; white-space:nowrap;
+    }
+    .sup-btn{ flex:0 0 auto; padding:8px 12px; }
+    .sup-btn span:not(.sup-avatar):not(.sup-count){ display:inline; }
+    #sidebar-foot{ padding:10px 16px 14px; }
+
+    #topbar{ padding:12px 14px; gap:10px; }
+    #topbar .meta{ font-size:11px; gap:10px; width:100%; order:1; }
+    .spacer{ display:none; }
+    #search{ width:100%; order:3; }
+    #upload-controls{ width:100%; order:4; flex-wrap:wrap; }
+    #upload-controls .btn{ flex:1 1 auto; }
+    .toggle-wrap{ order:2; }
+
+    #content{ padding:16px 14px 40px; }
+    .sup-header h2{ font-size:21px; }
+    .kpi-row{ gap:10px; }
+    .kpi-card{ flex:1 1 100%; padding:12px 14px; }
+    .kpi-card .kpi-value{ font-size:23px; }
+
+    .section-head{ padding:12px 14px; }
+    .section-head h3{ font-size:14px; }
+    .cat-filter{ padding:12px 14px 0; }
+
+    table.data{ font-size:11.5px; }
+    table.data th, table.data td{ padding:7px 8px; }
+    .table-scroll{ -webkit-overflow-scrolling:touch; }
+    .pct-bar{ width:22px; }
+  }
+
+  @media (max-width: 480px){
+    .brand h1{ font-size:15px; }
+    .sup-header h2{ font-size:18px; }
+    .kpi-card .kpi-value{ font-size:20px; }
+    table.data{ font-size:11px; }
+  }
+
+
+  /* ---------- Tela de login ---------- */
+  #login-screen{
+    min-height:100vh; display:flex; align-items:center; justify-content:center;
+    background: linear-gradient(180deg, var(--malt-900), var(--malt-800) 70%, var(--malt-700));
+    padding:20px;
+  }
+  .login-card{
+    background:var(--paper); border-radius:16px; padding:34px 32px; width:100%; max-width:360px;
+    box-shadow:0 20px 50px rgba(0,0,0,0.35);
+  }
+  .login-card .eyebrow{ font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:var(--copper); margin-bottom:6px; }
+  .login-card h1{ font-family:'Fraunces',serif; font-size:24px; margin:0 0 22px; }
+  .login-field{ margin-bottom:14px; }
+  .login-field label{ display:block; font-size:11.5px; color:var(--muted); margin-bottom:5px; font-weight:600; }
+  .login-field input{
+    width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:8px;
+    font-family:'Inter',sans-serif; font-size:14px; background:#fff;
+  }
+  .login-field input:focus{ outline:2px solid var(--copper-light); outline-offset:1px; }
+  #login-submit{ width:100%; margin-top:6px; padding:11px; }
+  #login-error{
+    display:none; background:var(--bad-bg); color:var(--bad); border-radius:8px;
+    padding:9px 12px; font-size:12.5px; margin-bottom:14px;
+  }
+  #login-config-warning{
+    display:none; background:var(--warn-bg); color:#7a5a1e; border-radius:8px;
+    padding:12px 14px; font-size:12px; line-height:1.6; margin-bottom:16px;
+  }
+  #login-config-warning code{ background:rgba(0,0,0,0.06); padding:1px 5px; border-radius:4px; }
+
+  /* ---------- Badge de usuário / logout ---------- */
+  #user-badge{ font-size:12px; color:var(--muted); font-family:'IBM Plex Mono',monospace; }
+  #logout-btn{ background:transparent; border:1px solid var(--line); color:var(--muted); }
+  #logout-btn:hover{ background:var(--paper-2); color:var(--ink); }
+
+</style>
+</head>
+<body>
+
+<div id="login-screen">
+  <div class="login-card">
+    <img src="assets/logo.png" alt="CRK Comércio de Bebidas · Heineken" style="height:56px; width:auto; max-width:170px; object-fit:contain; display:block; margin:0 auto 16px;">
+    <div class="eyebrow" style="text-align:center;">Comercial · Fundamentos</div>
+    <h1 style="text-align:center;">Painel de<br>Produtividade</h1>
+    <div id="login-config-warning">
+      <b>Configuração pendente.</b> Abra o arquivo <code>auth_and_db.js</code> e preencha
+      <code>SUPABASE_URL</code> e <code>SUPABASE_ANON_KEY</code> com os dados do seu projeto
+      Supabase (Project Settings → API), depois publique de novo.
+    </div>
+    <div id="login-error"></div>
+    <form id="login-form">
+      <div class="login-field">
+        <label for="login-email">E-mail</label>
+        <input id="login-email" type="email" required autocomplete="username">
+      </div>
+      <div class="login-field">
+        <label for="login-password">Senha</label>
+        <input id="login-password" type="password" required autocomplete="current-password">
+      </div>
+      <button type="submit" class="btn btn-primary" id="login-submit">Entrar</button>
+    </form>
+  </div>
+</div>
+
+<div id="app" style="display:none;">
+  <aside id="sidebar">
+    <div class="brand">
+      <img src="assets/logo.png" alt="CRK Comércio de Bebidas · Heineken" class="brand-logo">
+      <div class="eyebrow">Comercial · Fundamentos</div>
+      <h1>Painel de<br>Produtividade</h1>
+    </div>
+    <nav id="sup-list-fixed" style="padding:10px 10px 0;"></nav>
+    <nav id="sup-list"></nav>
+    <div id="sidebar-foot">
+      <span id="user-badge"></span><br><br>
+      <button id="logout-btn" class="btn" style="width:100%;">Sair</button>
+    </div>
+  </aside>
+
+  <div id="main">
+    <div id="topbar">
+      <div class="meta" id="meta-info"></div>
+      <div class="spacer"></div>
+      <label class="toggle-wrap"><input type="checkbox" id="detail-toggle" checked onchange="toggleDetail()"> Mostrar "Necessidade Dia"</label>
+      <input id="search" type="text" placeholder="Buscar vendedor…" oninput="onSearch()">
+      <div id="upload-controls" style="display:none; align-items:center; gap:10px;">
+        <input type="file" id="file-input" accept=".xlsx,.xlsm,.xls" onchange="handleFile(event)">
+        <button class="btn btn-primary" onclick="document.getElementById('file-input').click()">Carregar Excel</button>
+        <span id="upload-status"></span>
+      </div>
+    </div>
+    <div id="diag-bar" style="display:none; padding:8px 28px; border-bottom:1px solid; font-size:11.5px; font-family:'IBM Plex Mono',monospace;"></div>
+
+    <div id="content">
+      <div id="empty-state">
+        <div class="glyph">📊</div>
+        <h2>Nenhum dado carregado ainda</h2>
+        <p>Assim que o administrador carregar o Excel do dia, os dados aparecem aqui automaticamente.</p>
+      </div>
+      <div id="data-view" style="display:none;"></div>
+      <div id="no-match">Nenhum vendedor encontrado para essa busca.</div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* =====================================================================
+   PARSER — genérico, não depende de nomes fixos de categoria
+===================================================================== */
+/* =====================================================================
+   ESTADO
+===================================================================== */
+let DATA = null;          // { meta, supervisors:[...] }
+let ACTIVE_SUP = null;     // sheetName ativo, ou 'OVERVIEW'
+let SEARCH_TERM = '';
+const SECTION_LABELS = ['Volume (HL)', 'Cobertura (PDVs positivados)', 'Outros indicadores'];
+const SORT_STATE = {}; // { "sheetName:sectionIdx": 'asc'|'desc'|null }
+let SHOW_DETAIL = true;
+function sectionLabel(i){ return SECTION_LABELS[i] || ('Bloco ' + (i+1)); }
+
+function colLetterToNum(ws, r, c){
+  const addr = XLSX.utils.encode_cell({r:r-1, c:c-1});
+  const cell = ws[addr];
+  return cell ? cell.v : null;
+}
+
+/* =====================================================================
+   CLASSIFICAÇÃO AUTOMÁTICA DE SEÇÃO — agrupa categorias em até 3 blocos
+   (Volume / Cobertura / Outros) só pelo nome da categoria, pra manter a
+   mesma organização visual mesmo com uma planilha de entrada bem simples.
+===================================================================== */
+function classifySection(catName){
+  const up = String(catName || '').toUpperCase();
+  if(up.startsWith('HL') || up.includes('VOLUME')) return 0;
+  if(up.startsWith('COB') || up.includes('COBERTURA') || up.includes('PDV')) return 1;
+  return 2;
+}
+
+/* =====================================================================
+   CÁLCULO — % e Necessidade Dia a partir de Meta e Realizado
+===================================================================== */
+function computeCell(meta, real, diasFaltantes){
+  meta = typeof meta === 'number' ? meta : 0;
+  real = typeof real === 'number' ? real : 0;
+  const pct = meta !== 0 ? (real / meta) : null;
+  let necessidade = null;
+  if(typeof diasFaltantes === 'number' && diasFaltantes > 0){
+    necessidade = Math.max(0, (meta - real) / diasFaltantes);
+  }
+  return { 'Meta': meta, 'Real': real, '%': pct, 'Necessidade Dia': necessidade };
+}
+const METRIC_FIELDS = ['Meta','Real','%','Necessidade Dia'];
+function buildMetric(label, meta, real, diasFaltantes){
+  return { label, values: computeCell(meta, real, diasFaltantes), fieldsOrder: METRIC_FIELDS };
+}
+
+/* =====================================================================
+   LEITURA DA PLANILHA SIMPLES
+   Espera: um pequeno bloco no topo com Data / Dias Úteis / Dias Trabalhados
+   / Dias Faltantes, e depois uma tabela com colunas Supervisor, Vendedor,
+   Categoria, Meta, Realizado (PDVs é opcional).
+===================================================================== */
+function normHeader(v){ return String(v||'').trim().toLowerCase(); }
+
+function findMetaInfo(ws, maxRow){
+  const meta = { data:null, diasUteis:null, diasTrabalhados:null, diasFaltantes:null };
+  for(let r=1;r<=Math.min(maxRow,15);r++){
+    const label = normHeader(colLetterToNum(ws,r,1));
+    const value = colLetterToNum(ws,r,2);
+    if(value === null || value === undefined) continue;
+    if(label.includes('data')) meta.data = (value instanceof Date) ? value : (typeof value==='number' ? XLSX.SSF.parse_date_code(value) : value);
+    else if(label.includes('dias') && label.includes('útil') || label.includes('dias uteis') || label.includes('dias úteis')) meta.diasUteis = value;
+    else if(label.includes('trabalh')) meta.diasTrabalhados = value;
+    else if(label.includes('faltant')) meta.diasFaltantes = value;
+  }
+  return meta;
+}
+
+/* =====================================================================
+   DETECTOR GENÉRICO DE COLUNAS — aceita sinônimos, pra ser flexível com
+   a formatação da planilha (maiúsculas, acentos, pequenas variações).
+===================================================================== */
+function detectColumns(ws, maxRow, maxCol, requiredSynonyms, optionalSynonyms){
+  optionalSynonyms = optionalSynonyms || {};
+  for(let r=1;r<=Math.min(maxRow,20);r++){
+    const rowVals = [];
+    for(let c=1;c<=maxCol;c++) rowVals.push(normHeader(colLetterToNum(ws,r,c)));
+    const cols = {};
+    let ok = true;
+    for(const key in requiredSynonyms){
+      const idx = rowVals.findIndex(v => requiredSynonyms[key].includes(v));
+      if(idx < 0){ ok = false; break; }
+      cols[key] = idx + 1;
+    }
+    if(!ok) continue;
+    for(const key in optionalSynonyms){
+      const idx = rowVals.findIndex(v => optionalSynonyms[key].includes(v));
+      cols[key] = idx >= 0 ? idx + 1 : null;
+    }
+    return { headerRow: r, cols };
+  }
+  return null;
+}
+
+function findHeaderRow(ws, maxRow, maxCol){
+  const hdr = detectColumns(ws, maxRow, maxCol,
+    { colSup:['supervisor'], colVen:['vendedor'], colCat:['categoria'], colMeta:['meta'], colReal:['realizado','real'] },
+    { colPdv:['pdvs',"pdv's",'pdv'], colGrupo:['grupo','grupos','canal'],
+      colCodVend:['cod vend','cod. vend','cod vendedor','codigo vendedor','código vendedor','matricula','matrícula','cod'] }
+  );
+  if(!hdr) return null;
+  return { headerRow: hdr.headerRow, ...hdr.cols };
+}
+
+function findClientHeaderRow(ws, maxRow, maxCol){
+  const hdr = detectColumns(ws, maxRow, maxCol,
+    { colSup:['supervisor'], colVen:['vendedor'], colCliente:['cliente','nome','nome do cliente'] },
+    { colCod:['codigo','código','cod','cod.','cód'], colCanal:['canal'], colDia:['dia de atendimento','dia atendimento','dia'],
+      colDias:['dias sem comprar','dias sem compra','dias sem compras','dias s/ compra','dias s/comprar','dias sem venda'] }
+  );
+  if(!hdr) return null;
+  return { headerRow: hdr.headerRow, ...hdr.cols };
+}
+
+function readRowsFromSheet(ws){
+  const ref = ws['!ref'];
+  if(!ref) return { rows:[], meta:null };
+  const range = XLSX.utils.decode_range(ref);
+  const maxRow = range.e.r + 1, maxCol = range.e.c + 1;
+  const meta = findMetaInfo(ws, maxRow);
+  const hdr = findHeaderRow(ws, maxRow, maxCol);
+  if(!hdr) return { rows:[], meta };
+
+  const rows = [];
+  for(let r=hdr.headerRow+1; r<=maxRow; r++){
+    const sup = colLetterToNum(ws,r,hdr.colSup);
+    const ven = colLetterToNum(ws,r,hdr.colVen);
+    const cat = colLetterToNum(ws,r,hdr.colCat);
+    if(!sup && !ven) continue;
+    if(!sup || !ven || !cat) continue;
+    const grupoRaw = hdr.colGrupo ? colLetterToNum(ws,r,hdr.colGrupo) : null;
+    const codVendRaw = hdr.colCodVend ? colLetterToNum(ws,r,hdr.colCodVend) : null;
+    rows.push({
+      supervisor: String(sup).trim(),
+      vendedor: String(ven).trim(),
+      codVend: (codVendRaw !== null && codVendRaw !== undefined && String(codVendRaw).trim() !== '') ? String(codVendRaw).trim() : null,
+      categoria: String(cat).trim(),
+      meta: Number(colLetterToNum(ws,r,hdr.colMeta)) || 0,
+      real: Number(colLetterToNum(ws,r,hdr.colReal)) || 0,
+      pdvs: hdr.colPdv ? colLetterToNum(ws,r,hdr.colPdv) : null,
+      grupos: grupoRaw ? String(grupoRaw).split(/[,+\/]/).map(s=>s.trim()).filter(Boolean) : []
+    });
+  }
+  return { rows, meta };
+}
+
+/* =====================================================================
+   LEITURA DA ABA DE CLIENTES SEM COMPRA (aba separada, colunas flexíveis)
+===================================================================== */
+function readClientRowsFromSheet(ws){
+  const ref = ws['!ref'];
+  if(!ref) return [];
+  const range = XLSX.utils.decode_range(ref);
+  const maxRow = range.e.r + 1, maxCol = range.e.c + 1;
+  const hdr = findClientHeaderRow(ws, maxRow, maxCol);
+  if(!hdr) return [];
+
+  const rows = [];
+  for(let r=hdr.headerRow+1; r<=maxRow; r++){
+    const sup = colLetterToNum(ws,r,hdr.colSup);
+    const ven = colLetterToNum(ws,r,hdr.colVen);
+    const cliente = colLetterToNum(ws,r,hdr.colCliente);
+    if(!sup && !ven && !cliente) continue;
+    if(!sup || !ven || !cliente) continue;
+    rows.push({
+      supervisor: String(sup).trim(),
+      vendedor: String(ven).trim(),
+      cliente: String(cliente).trim(),
+      codigo: hdr.colCod ? (colLetterToNum(ws,r,hdr.colCod) ?? null) : null,
+      canal: hdr.colCanal ? (colLetterToNum(ws,r,hdr.colCanal) ?? null) : null,
+      diaAtendimento: hdr.colDia ? (colLetterToNum(ws,r,hdr.colDia) ?? null) : null,
+      diasSemComprar: hdr.colDias ? (Number(colLetterToNum(ws,r,hdr.colDias)) || null) : null
+    });
+  }
+  return rows;
+}
+
+/* =====================================================================
+   MONTAGEM DA ESTRUTURA (supervisores → seções → vendedores) a partir
+   das linhas simples, calculando % e Necessidade Dia e os totais.
+===================================================================== */
+function buildSupervisorsFromRows(rows, diasFaltantes, nameMap){
+  nameMap = nameMap || new Map();
+  const displayName = (code) => nameMap.get(String(code).trim()) || code;
+
+  // agrupa por supervisor -> vendedor -> categoria (soma se houver duplicidade)
+  const supMap = new Map();
+  const globalCatTotals = new Map(); // categoria -> {meta, real} (empresa toda)
+
+  rows.forEach(r=>{
+    if(!supMap.has(r.supervisor)) supMap.set(r.supervisor, { vendors: new Map(), catOrder: [], grupos: new Set() });
+    const supEntry = supMap.get(r.supervisor);
+    if(!supEntry.catOrder.includes(r.categoria)) supEntry.catOrder.push(r.categoria);
+    const vKey = r.codVend || r.vendedor; // usa o código como identificador único quando existir
+    if(!supEntry.vendors.has(vKey)) supEntry.vendors.set(vKey, { nome:r.vendedor, pdvs:null, cats:new Map() });
+    const vEntry = supEntry.vendors.get(vKey);
+    vEntry.nome = displayName(r.vendedor); // traduz código -> nome quando houver correspondência na aba "Nomes"
+    const prev = vEntry.cats.get(r.categoria) || { meta:0, real:0 };
+    vEntry.cats.set(r.categoria, { meta: prev.meta + r.meta, real: prev.real + r.real });
+    if(r.pdvs !== null && r.pdvs !== undefined) vEntry.pdvs = r.pdvs;
+    (r.grupos||[]).forEach(g => supEntry.grupos.add(g));
+
+    const gPrev = globalCatTotals.get(r.categoria) || { meta:0, real:0 };
+    globalCatTotals.set(r.categoria, { meta: gPrev.meta + r.meta, real: gPrev.real + r.real });
+  });
+
+  const supervisors = [];
+  for(const [supName, supEntry] of supMap){
+    const sectionCats = [[],[],[]];
+    supEntry.catOrder.forEach(c => sectionCats[classifySection(c)].push(c));
+    const supDisplayName = displayName(supName);
+
+    const sections = [];
+    sectionCats.forEach(catsInSection=>{
+      if(catsInSection.length === 0) return;
+      const categories = catsInSection.map(c=>({ label:c, fields: METRIC_FIELDS.map(name=>({name})) }));
+
+      const vendors = [];
+      for(const [,vEntry] of supEntry.vendors){
+        const metrics = catsInSection.map(c=>{
+          const cd = vEntry.cats.get(c) || { meta:0, real:0 };
+          return buildMetric(c, cd.meta, cd.real, diasFaltantes);
+        });
+        vendors.push({ setor:null, vendedor:vEntry.nome, pdvs:vEntry.pdvs, metrics });
+      }
+
+      const supervisorTotal = catsInSection.map(c=>{
+        let sumMeta=0, sumReal=0;
+        for(const [,vEntry] of supEntry.vendors){
+          const cd = vEntry.cats.get(c);
+          if(cd){ sumMeta+=cd.meta; sumReal+=cd.real; }
+        }
+        return buildMetric(c, sumMeta, sumReal, diasFaltantes);
+      });
+      const companyTotal = catsInSection.map(c=>{
+        const g = globalCatTotals.get(c) || { meta:0, real:0 };
+        return buildMetric(c, g.meta, g.real, diasFaltantes);
+      });
+
+      sections.push({
+        categories,
+        vendors,
+        aggregate: [
+          { setor:null, nome: supDisplayName.toUpperCase() + ' (total)', pdvs:null, metrics: supervisorTotal },
+          { setor:null, nome: 'EMPRESA (total)', pdvs:null, metrics: companyTotal }
+        ]
+      });
+    });
+
+    supervisors.push({ name: supDisplayName, sheetName: 'Fundamentos ' + supName, sections, grupos: [...supEntry.grupos] });
+  }
+  return supervisors.sort((a,b)=>a.name.localeCompare(b.name));
+}
+
+/* =====================================================================
+   ACHATAR EM LINHAS POR VENDEDOR — formato que vai pro banco (uma linha
+   por vendedor, mais 2 linhas de totais por supervisor), pra permitir
+   que cada vendedor tenha permissão só na própria linha.
+===================================================================== */
+function flattenToVendorRows(supervisors){
+  const rows = [];
+  supervisors.forEach(sup=>{
+    const vendorMap = new Map(); // vendedor -> {pdvs, metrics:[]}
+    sup.sections.forEach(sec=>{
+      sec.vendors.forEach(v=>{
+        if(!vendorMap.has(v.vendedor)) vendorMap.set(v.vendedor, { pdvs:v.pdvs, metrics:[] });
+        const entry = vendorMap.get(v.vendedor);
+        entry.metrics.push(...v.metrics);
+        if(v.pdvs !== null && v.pdvs !== undefined) entry.pdvs = v.pdvs;
+      });
+    });
+    for(const [venName, entry] of vendorMap){
+      rows.push({
+        supervisor_sheet_name: sup.sheetName, supervisor_display_name: sup.name,
+        vendedor_nome: venName, is_aggregate: false, pdvs: entry.pdvs, metrics: entry.metrics
+      });
+    }
+
+    const aggMerged = [
+      { nome: sup.name.toUpperCase() + ' (total)', metrics: [] },
+      { nome: 'EMPRESA (total)', metrics: [] }
+    ];
+    sup.sections.forEach(sec=>{
+      sec.aggregate.forEach((a,i)=>{ if(aggMerged[i]) aggMerged[i].metrics.push(...a.metrics); });
+    });
+    aggMerged.forEach(a=>{
+      rows.push({
+        supervisor_sheet_name: sup.sheetName, supervisor_display_name: sup.name,
+        vendedor_nome: a.nome, is_aggregate: true, pdvs: null, metrics: a.metrics
+      });
+    });
+  });
+  return rows;
+}
+
+/* =====================================================================
+   RECONSTRUIR A PARTIR DO BANCO — o inverso de flattenToVendorRows,
+   usado depois de buscar as linhas já filtradas pelas permissões (RLS).
+===================================================================== */
+function reconstructSupervisors(vendorRows){
+  const supMap = new Map();
+  vendorRows.forEach(r=>{
+    if(!supMap.has(r.supervisor_sheet_name)){
+      supMap.set(r.supervisor_sheet_name, { name: r.supervisor_display_name, sheetName: r.supervisor_sheet_name, vendors: [], aggregate: [] });
+    }
+    const entry = supMap.get(r.supervisor_sheet_name);
+    const item = { setor:null, vendedor:r.vendedor_nome, nome:r.vendedor_nome, pdvs:r.pdvs, metrics:r.metrics };
+    (r.is_aggregate ? entry.aggregate : entry.vendors).push(item);
+  });
+
+  const supervisors = [];
+  for(const [,entry] of supMap){
+    const catOrder = [];
+    const collect = list => list.forEach(v => v.metrics.forEach(m=>{ if(!catOrder.includes(m.label)) catOrder.push(m.label); }));
+    collect(entry.vendors); collect(entry.aggregate);
+    const sectionCats = [[],[],[]];
+    catOrder.forEach(c => sectionCats[classifySection(c)].push(c));
+
+    const sections = [];
+    sectionCats.forEach(catsInSection=>{
+      if(catsInSection.length === 0) return;
+      const categories = catsInSection.map(c=>({ label:c, fields: METRIC_FIELDS.map(name=>({name})) }));
+      const vendors = entry.vendors.map(v=>({
+        setor:null, vendedor:v.vendedor, pdvs:v.pdvs,
+        metrics: catsInSection.map(c => v.metrics.find(m=>m.label===c) || { label:c, values:{}, fieldsOrder:METRIC_FIELDS })
+      }));
+      const aggregate = entry.aggregate.map(a=>({
+        setor:null, nome:a.nome, pdvs:a.pdvs,
+        metrics: catsInSection.map(c => a.metrics.find(m=>m.label===c) || { label:c, values:{}, fieldsOrder:METRIC_FIELDS })
+      }));
+      sections.push({ categories, vendors, aggregate });
+    });
+    supervisors.push({ name: entry.name, sheetName: entry.sheetName, sections });
+  }
+  return supervisors.sort((a,b)=>a.name.localeCompare(b.name));
+}
+
+/* =====================================================================
+   ABA OPCIONAL "NOMES" — tradução Código → Nome, usada quando a planilha
+   de dados só tem códigos numéricos nas colunas Supervisor/Vendedor.
+   Detecta qualquer aba que tenha colunas parecidas com Código e Nome.
+===================================================================== */
+/* =====================================================================
+   ABA OPCIONAL "RESULTADO DIA" — o admin sobe o resultado do desafio de
+   todos os vendedores de uma vez. Detecta qualquer aba com colunas
+   Supervisor, Vendedor e Resultado (e SEM coluna Meta, pra não confundir
+   com a aba principal de dados).
+===================================================================== */
+/* =====================================================================
+   ABA "PAINEL GANHO" — incentivo/prêmio por vendedor. Formato de blocos:
+   uma tabela com SETOR/VENDEDOR/PDV's/PREMIO (supervisor em cascata, só
+   escrito na primeira linha do grupo) e, embaixo, uma tabela de totais
+   por supervisor + total da empresa.
+===================================================================== */
+function readIncentivoFromSheet(ws){
+  const ref = ws['!ref'];
+  if(!ref) return null;
+  const range = XLSX.utils.decode_range(ref);
+  const maxRow = range.e.r + 1, maxCol = range.e.c + 1;
+  const cell = (r,c) => colLetterToNum(ws,r,c);
+
+  // acha a linha de cabeçalho individual: precisa ter SETOR, VENDEDOR, PDV'S e PREMIO
+  let headerRow = null, colSetor=null, colVendedor=null, colPdv=null, colPremio=null, colSup=null;
+  for(let r=1;r<=Math.min(maxRow,30);r++){
+    const rowVals = [];
+    for(let c=1;c<=maxCol;c++) rowVals.push(normHeader(cell(r,c)));
+    const iSetor = rowVals.indexOf('setor');
+    const iVend = rowVals.indexOf('vendedor');
+    const iPdv = rowVals.findIndex(v=>v==="pdv's"||v==='pdvs'||v==='pdv');
+    const iPremio = rowVals.findIndex(v=>v==='premio'||v==='prêmio');
+    if(iSetor>=0 && iVend>=0 && iPdv>=0 && iPremio>=0){
+      headerRow = r; colSetor=iSetor+1; colVendedor=iVend+1; colPdv=iPdv+1; colPremio=iPremio+1;
+      const iSup = rowVals.indexOf('supervisor');
+      colSup = iSup>=0 ? iSup+1 : Math.max(1, colSetor-1);
+      break;
+    }
+  }
+  if(!headerRow) return null;
+
+  const vendors = [];
+  let lastSup = null;
+  let r = headerRow+1;
+  for(; r<=maxRow; r++){
+    const setor = cell(r,colSetor);
+    const vend = cell(r,colVendedor);
+    if(setor===null && vend===null){ break; } // fim do bloco
+    const supHere = cell(r,colSup);
+    if(supHere) lastSup = String(supHere).trim();
+    if(vend === null || vend === undefined || String(vend).trim()===''){ continue; } // linha tipo TELEVENDAS sem vendedor
+    vendors.push({
+      supervisor: lastSup,
+      setor: setor,
+      vendedor: String(vend).trim(),
+      pdvs: cell(r,colPdv),
+      premio: Number(cell(r,colPremio)) || 0
+    });
+  }
+
+  // acha a linha de cabeçalho agregado: MESA / SUPERVISOR / PDV'S / PREMIO
+  let aggHeaderRow = null, colMesa=null, colAggSup=null, colAggPdv=null, colAggPremio=null;
+  for(let rr=r; rr<=Math.min(maxRow, r+15); rr++){
+    const rowVals = [];
+    for(let c=1;c<=maxCol;c++) rowVals.push(normHeader(cell(rr,c)));
+    const iMesa = rowVals.indexOf('mesa');
+    const iSup2 = rowVals.indexOf('supervisor');
+    const iPdv2 = rowVals.findIndex(v=>v==="pdv's"||v==='pdvs'||v==='pdv');
+    const iPremio2 = rowVals.findIndex(v=>v==='premio'||v==='prêmio');
+    if(iMesa>=0 && iSup2>=0 && iPdv2>=0 && iPremio2>=0){
+      aggHeaderRow = rr; colMesa=iMesa+1; colAggSup=iSup2+1; colAggPdv=iPdv2+1; colAggPremio=iPremio2+1;
+      break;
+    }
+  }
+  const aggregate = [];
+  if(aggHeaderRow){
+    for(let rr=aggHeaderRow+1; rr<=maxRow; rr++){
+      const supName = cell(rr,colAggSup);
+      if(supName === null || supName === undefined || String(supName).trim()==='') break;
+      aggregate.push({
+        mesa: cell(rr,colMesa),
+        supervisor: String(supName).trim(),
+        pdvs: cell(rr,colAggPdv),
+        premio: Number(cell(rr,colAggPremio)) || 0
+      });
+    }
+  }
+
+  if(vendors.length === 0) return null;
+  return { vendors, aggregate };
+}
+
+function readDailyResultsFromSheet(ws){
+  const ref = ws['!ref'];
+  if(!ref) return [];
+  const range = XLSX.utils.decode_range(ref);
+  const maxRow = range.e.r + 1, maxCol = range.e.c + 1;
+  const hdr = detectColumns(ws, maxRow, maxCol,
+    { colSup:['supervisor'], colVen:['vendedor'], colRes:['resultado','resultado dia','resultado do dia'] },
+    { colCat:['categoria'] }
+  );
+  if(!hdr) return [];
+  // se a mesma linha de cabeçalho tiver "meta", é a aba principal — ignora
+  for(let c=1;c<=maxCol;c++){
+    if(normHeader(colLetterToNum(ws, hdr.headerRow, c)) === 'meta') return [];
+  }
+  const rows = [];
+  for(let r=hdr.headerRow+1; r<=maxRow; r++){
+    const sup = colLetterToNum(ws,r,hdr.cols.colSup);
+    const ven = colLetterToNum(ws,r,hdr.cols.colVen);
+    const res = colLetterToNum(ws,r,hdr.cols.colRes);
+    if(!sup || !ven || res === null || res === undefined || res === '') continue;
+    const cat = hdr.cols.colCat ? colLetterToNum(ws,r,hdr.cols.colCat) : null;
+    rows.push({
+      supervisor: String(sup).trim(),
+      vendedor: String(ven).trim(),
+      categoria: cat ? String(cat).trim() : 'GERAL',
+      resultado: Number(res) || 0
+    });
+  }
+  return rows;
+}
+
+function readNameMapFromSheet(ws, map){
+  const ref = ws['!ref'];
+  if(!ref) return;
+  const range = XLSX.utils.decode_range(ref);
+  const maxRow = range.e.r + 1, maxCol = range.e.c + 1;
+  const hdr = detectColumns(ws, maxRow, maxCol,
+    { colCod:['codigo','código','cod'], colNome:['nome','nome real','descricao','descrição'] }, {});
+  if(!hdr) return;
+  for(let r=hdr.headerRow+1; r<=maxRow; r++){
+    const cod = colLetterToNum(ws, r, hdr.cols.colCod);
+    const nome = colLetterToNum(ws, r, hdr.cols.colNome);
+    if(cod === null || cod === undefined || !nome) continue;
+    map.set(String(cod).trim(), String(nome).trim());
+  }
+}
+
+function parseWorkbook(wb){
+  let allRows = [];
+  let clientRows = [];
+  let dailyResultRows = [];
+  let incentivoBlocks = [];
+  let meta = { data:null, diasUteis:null, diasTrabalhados:null, diasFaltantes:null };
+  const nameMap = new Map();
+
+  for(const sheetName of wb.SheetNames){
+    const ws = wb.Sheets[sheetName];
+    const { rows, meta: sheetMeta } = readRowsFromSheet(ws);
+    if(rows.length) allRows = allRows.concat(rows);
+    clientRows = clientRows.concat(readClientRowsFromSheet(ws));
+    dailyResultRows = dailyResultRows.concat(readDailyResultsFromSheet(ws));
+    const inc = readIncentivoFromSheet(ws);
+    if(inc) incentivoBlocks.push(inc);
+    readNameMapFromSheet(ws, nameMap);
+    if(sheetMeta){
+      if(meta.data === null && sheetMeta.data !== null) meta.data = sheetMeta.data;
+      if(meta.diasUteis === null && sheetMeta.diasUteis !== null) meta.diasUteis = sheetMeta.diasUteis;
+      if(meta.diasTrabalhados === null && sheetMeta.diasTrabalhados !== null) meta.diasTrabalhados = sheetMeta.diasTrabalhados;
+      if(meta.diasFaltantes === null && sheetMeta.diasFaltantes !== null) meta.diasFaltantes = sheetMeta.diasFaltantes;
+    }
+  }
+
+  const supervisors = buildSupervisorsFromRows(allRows, meta.diasFaltantes, nameMap);
+  meta.supervisorGroups = {};
+  supervisors.forEach(s => { meta.supervisorGroups[s.sheetName] = s.grupos || []; });
+
+  // traduz o nome do vendedor nos resultados do dia (mesma regra do painel),
+  // pra bater com os nomes usados na área de Necessidade do Dia
+  const displayName = (code) => nameMap.get(String(code).trim()) || code;
+  const dailyResults = dailyResultRows.map(r => ({
+    supervisor_sheet_name: 'Fundamentos ' + r.supervisor,
+    vendedor_nome: displayName(r.vendedor),
+    categoria: r.categoria,
+    resultado: r.resultado
+  }));
+
+  // achata os blocos de incentivo em linhas por vendedor + 2 linhas de total
+  // por supervisor (total do supervisor + total da empresa), no mesmo formato
+  // usado em vendor_snapshots — reaproveita os nomes já traduzidos (displayName)
+  const incentivos = [];
+  incentivoBlocks.forEach(block=>{
+    const bySupervisor = new Map(); // supName -> { display, vendors:[] }
+    block.vendors.forEach(v=>{
+      const supName = v.supervisor || 'SEM SUPERVISOR';
+      if(!bySupervisor.has(supName)) bySupervisor.set(supName, []);
+      bySupervisor.get(supName).push(v);
+    });
+
+    for(const [supName, vendors] of bySupervisor){
+      const supDisplay = displayName(supName);
+      const sheetName = 'Fundamentos ' + supName;
+      vendors.forEach(v=>{
+        incentivos.push({
+          supervisor_sheet_name: sheetName,
+          supervisor_display_name: supDisplay,
+          vendedor_nome: displayName(v.vendedor),
+          is_aggregate: false,
+          pdvs: v.pdvs,
+          premio: v.premio
+        });
+      });
+    }
+
+    // linhas de agregado: cada linha "normal" é o total de UM supervisor;
+    // a ÚLTIMA linha do bloco é o total da empresa inteira — essa é replicada
+    // para todos os supervisores do bloco, pra servir de comparação em cada um
+    const supNames = [...bySupervisor.keys()];
+    block.aggregate.forEach((a,i)=>{
+      const isLast = i === block.aggregate.length - 1;
+      if(isLast){
+        supNames.forEach(supName=>{
+          incentivos.push({
+            supervisor_sheet_name: 'Fundamentos ' + supName,
+            supervisor_display_name: displayName(supName),
+            vendedor_nome: 'EMPRESA (total)',
+            is_aggregate: true,
+            pdvs: a.pdvs,
+            premio: a.premio
+          });
+        });
+        return;
+      }
+      // tenta casar pelo nome (com tradução) com um dos supervisores já vistos
+      // (ignora acentos, pois a mesma planilha às vezes escreve "FLAVIA" e
+      // "FLÁVIA" em blocos diferentes)
+      const norm = s => String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().trim();
+      let matchedSupName = supNames.find(supName => norm(displayName(supName)) === norm(a.supervisor));
+      if(!matchedSupName) matchedSupName = a.supervisor; // fallback: usa o próprio nome como código
+      incentivos.push({
+        supervisor_sheet_name: 'Fundamentos ' + matchedSupName,
+        supervisor_display_name: displayName(matchedSupName),
+        vendedor_nome: displayName(a.supervisor).toUpperCase() + ' (total)',
+        is_aggregate: true,
+        pdvs: a.pdvs,
+        premio: a.premio
+      });
+    });
+  });
+
+  return { meta, supervisors, clientRows, dailyResults, incentivos };
+}
+function toggleDetail(){
+  SHOW_DETAIL = document.getElementById('detail-toggle').checked;
+  render();
+}
+function sectionAvgPct(section){
+  let sum=0, count=0;
+  section.vendors.forEach(v=>{
+    v.metrics.forEach(m=>{
+      const val = m.values['%'];
+      if(typeof val === 'number' && isFinite(val)){ sum+=val; count++; }
+    });
+  });
+  return count ? sum/count : null;
+}
+function vendorAvgPct(vendor){
+  let sum=0, count=0;
+  vendor.metrics.forEach(m=>{
+    const val = m.values['%'];
+    if(typeof val === 'number' && isFinite(val)){ sum+=val; count++; }
+  });
+  return count ? sum/count : null;
+}
+function isVago(name){ return /^vago\b/i.test((name||'').trim()); }/* =====================================================================
+   RENDER
+===================================================================== */
+function fmtNum(v){
+  if(v === null || v === undefined || v === '') return '—';
+  if(typeof v !== 'number') return String(v);
+  return v.toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2});
+}
+function fmtInt(v){
+  if(v === null || v === undefined || v === '') return '—';
+  if(typeof v !== 'number') return String(v);
+  return Math.round(v).toLocaleString('pt-BR');
+}
+function fmtPct(v){
+  if(v === null || v === undefined || v === '') return { text:'—', cls:'' };
+  const pct = v*100;
+  let cls = 'pct-bad';
+  if(pct >= 90) cls = 'pct-good';
+  else if(pct >= 60) cls = 'pct-warn';
+  const width = Math.max(0, Math.min(100, pct));
+  return { text: pct.toLocaleString('pt-BR',{maximumFractionDigits:1}) + '%', cls, width };
+}
+
+function isPercentField(name){
+  return name === '%';
+}
+function isIntField(name){
+  return /necessidade dia|pdv|pedidos/i.test(name);
+}
+
+const VISIBLE_CATS = {}; // key: "sheetName:idx" -> Set de rótulos de categoria OCULTOS (vazio = todas visíveis)
+
+function catKey(sheetName, idx){ return sheetName + ':' + idx; }
+
+function toggleCategory(sheetName, idx, label){
+  const key = catKey(sheetName, idx);
+  if(!VISIBLE_CATS[key]) VISIBLE_CATS[key] = new Set();
+  const set = VISIBLE_CATS[key];
+  if(set.has(label)) set.delete(label); else set.add(label);
+  render();
+}
+function showAllCategories(sheetName, idx){
+  VISIBLE_CATS[catKey(sheetName, idx)] = new Set();
+  render();
+}
+function showOnlyCategory(sheetName, idx, label, allLabels){
+  VISIBLE_CATS[catKey(sheetName, idx)] = new Set(allLabels.filter(l => l !== label));
+  render();
+}
+
+const KEEP_UPPER = new Set(['HL','COB','PDV','PDVS',"PDV'S",'TT','SKU','FDS','NAB','RGB','HNK','FEV','MS','X']);
+function prettyLabel(label){
+  return String(label||'').replace(/\s+/g,' ').trim().split(' ').map(word=>{
+    const bare = word.replace(/[^\wÀ-ÿ%]/g,'').toUpperCase();
+    if(!bare) return word;
+    if(KEEP_UPPER.has(bare) || /^\d+([.,]\d+)?%?$/.test(bare)) return word.toUpperCase();
+    return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+  }).join(' ');
+}
+
+function buildCategoryFilter(sheetName, idx, cats){
+  const key = catKey(sheetName, idx);
+  const hidden = VISIBLE_CATS[key] || new Set();
+  const sName = sheetName.replace(/'/g,"\\'");
+  const allLabelsJson = JSON.stringify(cats.map(c=>c.label)).replace(/"/g,'&quot;');
+  const allVisible = hidden.size === 0;
+  const chips = cats.map(cat=>{
+    const active = !allVisible && !hidden.has(cat.label);
+    const lbl = cat.label.replace(/'/g,"\\'");
+    return `<button class="cat-chip ${active?'active':''}" onclick="showOnlyCategory('${sName}',${idx},'${lbl}',${allLabelsJson})" title="Ver só esta categoria">${prettyLabel(cat.label)}</button>`;
+  }).join('');
+  return `<div class="cat-filter">
+    <button class="cat-chip cat-chip-all ${allVisible?'active':''}" onclick="showAllCategories('${sName}',${idx})">Todas</button>
+    ${chips}
+  </div>`;
+}
+
+function isDetailField(name){
+  return /necessidade dia/i.test(name);
+}
+function renderMetricCell(fieldName, value, isGroupStart){
+  const extraCls = isGroupStart ? ' group-start' : '';
+  if(isPercentField(fieldName)){
+    const p = fmtPct(value);
+    if(p.text === '—') return '<td class="num'+extraCls+'">—</td>';
+    return '<td class="'+p.cls+extraCls+'"><div class="pct-cell"><span class="pct-bar"><span style="width:'+p.width+'%"></span></span>'+p.text+'</div></td>';
+  }
+  if(isIntField(fieldName)){
+    return '<td class="num'+extraCls+'">'+fmtInt(value)+'</td>';
+  }
+  return '<td class="num'+extraCls+'">'+fmtNum(value)+'</td>';
+}
+
+function getCommitment(sheetName, vendedorNome, categoria){
+  if(typeof COMMITMENTS === 'undefined') return null;
+  return COMMITMENTS.find(x => x.supervisor_sheet_name === sheetName && x.vendedor_nome === vendedorNome && (x.categoria || 'GERAL') === categoria) || null;
+}
+
+function commitmentInput(sheetName, vendedorNome, categoria, field, val, editable){
+  const shown = (val !== null && val !== undefined) ? String(val).replace('.',',') : '';
+  if(!editable) return '<td class="num">'+(shown !== '' ? shown : '—')+'</td>';
+  const sn = sheetName.replace(/'/g,"\\'");
+  const vn = vendedorNome.replace(/'/g,"\\'");
+  const ct = categoria.replace(/'/g,"\\'");
+  return '<td class="num"><input type="text" inputmode="decimal" value="'+shown+'" '
+    + 'style="width:80px; text-align:right; border:1px solid var(--line); border-radius:6px; padding:5px 7px; font-family:\'IBM Plex Mono\',monospace; font-size:12.5px; background:#fffdf8;" '
+    + 'onchange="saveCommitmentField(\''+sn+'\',\''+vn+'\',\''+ct+'\',\''+field+'\',this.value)" placeholder="—"></td>';
+}
+
+const COMMIT_ACTIVE_CAT = {}; // sheetName -> categoria selecionada na página de desafios
+
+function selectCommitCat(sheetName, categoria){
+  COMMIT_ACTIVE_CAT[sheetName] = categoria;
+  render();
+}
+
+function supervisorCategories(sup){
+  const cats = [];
+  sup.sections.forEach(sec => sec.categories.forEach(c => { if(!cats.includes(c.label)) cats.push(c.label); }));
+  // o desafio do dia é em COBERTURA: se o supervisor tiver categorias de cobertura,
+  // só elas aparecem como opções de desafio; senão, mostra todas (fallback).
+  const cobCats = cats.filter(c => classifySection(c) === 1);
+  return cobCats.length ? cobCats : cats;
+}
+
+function fmtMoney(v){
+  if(v === null || v === undefined || v === '') return '—';
+  if(typeof v !== 'number') return String(v);
+  return 'R$ ' + v.toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2});
+}
+
+function renderIncentivoPage(){
+  if(typeof INCENTIVOS === 'undefined' || !INCENTIVOS || INCENTIVOS.length === 0){
+    return '<div class="sup-header"><h2>Incentivo</h2></div><div class="sup-sub">Nenhum dado de incentivo carregado ainda. Suba a planilha com a aba "Painel Ganho" pelo botão Carregar Excel.</div>';
+  }
+  const bySup = new Map();
+  INCENTIVOS.forEach(row=>{
+    if(!bySup.has(row.supervisor_sheet_name)) bySup.set(row.supervisor_sheet_name, { display: row.supervisor_display_name, vendors: [], aggregate: [] });
+    const entry = bySup.get(row.supervisor_sheet_name);
+    (row.is_aggregate ? entry.aggregate : entry.vendors).push(row);
+  });
+
+  // resumo geral: total da empresa (pega de qualquer linha "EMPRESA (total)") + campeão geral
+  const empresaRow = INCENTIVOS.find(r => r.vendedor_nome === 'EMPRESA (total)');
+  const allVendors = INCENTIVOS.filter(r => !r.is_aggregate);
+  const champion = allVendors.slice().sort((a,b)=>(b.premio||0)-(a.premio||0))[0];
+
+  let html = `
+    <div class="sup-header"><h2>Incentivo</h2></div>
+    <div class="sup-sub">Prêmio por vendedor, com total do supervisor e da empresa pra comparação.</div>
+    <div class="kpi-row">
+      <div class="kpi-card kpi-good">
+        <div class="kpi-label">Total pago pela empresa</div>
+        <div class="kpi-value">${empresaRow ? fmtMoney(empresaRow.premio) : '—'}</div>
+        <div class="kpi-sub">${empresaRow ? fmtInt(empresaRow.pdvs) + ' PDVs' : ''}</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">🏆 Maior prêmio individual</div>
+        <div class="kpi-value" style="font-size:20px;">${champion ? champion.vendedor_nome : '—'}</div>
+        <div class="kpi-sub">${champion ? fmtMoney(champion.premio) + ' · ' + champion.supervisor_display_name : ''}</div>
+      </div>
+    </div>
+  `;
+
+  const supEntries = [...bySup.entries()].sort((a,b)=> a[1].display.localeCompare(b[1].display));
+  supEntries.forEach(([sheetName, entry])=>{
+    const vendors = entry.vendors.slice().sort((a,b)=> (b.premio||0) - (a.premio||0));
+    const maxPremio = Math.max(1, ...vendors.map(v=>v.premio||0));
+    const medals = ['🥇','🥈','🥉'];
+    const rows = vendors.map((v,i)=>{
+      const vago = isVago(v.vendedor_nome);
+      const pct = Math.max(2, Math.round(((v.premio||0) / maxPremio) * 100));
+      const medal = (!vago && i<3 && v.premio>0) ? medals[i]+' ' : '';
+      return '<tr class="'+(vago?'vago-row':'')+'"><td class="name-col">'+medal+v.vendedor_nome+'</td>'
+        + '<td class="num">'+fmtInt(v.pdvs)+'</td>'
+        + '<td class="num"><div class="pct-cell"><span class="pct-bar"><span style="width:'+pct+'%; background:var(--copper);"></span></span>'+fmtMoney(v.premio)+'</div></td></tr>';
+    }).join('');
+    const aggRows = entry.aggregate.map((a,i)=>{
+      const cls = i===0 ? 'agg-total' : 'agg-company';
+      return '<tr class="'+cls+'"><td class="name-col">'+a.vendedor_nome+'</td>'
+        + '<td class="num">'+fmtInt(a.pdvs)+'</td>'
+        + '<td class="num">'+fmtMoney(a.premio)+'</td></tr>';
+    }).join('');
+    const teamTotal = entry.aggregate[0] ? fmtMoney(entry.aggregate[0].premio) : '—';
+
+    html += `
+    <div class="section-card">
+      <div class="section-head" onclick="toggleSection(this)">
+        <span class="chev">▾</span>
+        <h3>${entry.display}</h3>
+        <span class="n">${vendors.length} vendedores · total do time ${teamTotal}</span>
+      </div>
+      <div class="section-body">
+        <div class="table-scroll">
+          <table class="data">
+            <thead><tr>
+              <th class="name-col" style="min-width:210px;">Vendedor</th>
+              <th style="min-width:70px;">PDVs</th>
+              <th style="min-width:160px;">Prêmio</th>
+            </tr></thead>
+            <tbody>${rows}${aggRows}</tbody>
+          </table>
+        </div>
+      </div>
+    </div>`;
+  });
+  return html;
+}
+
+function renderCommitmentsPage(){
+  if(!DATA || !DATA.supervisors.length){
+    return '<div class="sup-header"><h2>Necessidade do Dia</h2></div><div class="sup-sub">Sem dados carregados ainda.</div>';
+  }
+  let html = `
+    <div class="sup-header"><h2>Necessidade do Dia</h2></div>
+    <div class="sup-sub">Escolha a categoria do desafio em cada equipe, defina a necessidade de cada vendedor, e lance o resultado no fim do dia. O status calcula sozinho. Cada categoria é um desafio separado — os valores ficam salvos ao trocar de categoria.</div>
+  `;
+  DATA.supervisors.forEach(sup=>{
+    const vendors = sup.sections[0] ? sup.sections[0].vendors : [];
+    if(!vendors.length) return;
+    const editable = (typeof canEditCommitment === 'function') && canEditCommitment(sup.sheetName);
+    const cats = supervisorCategories(sup);
+    const activeCat = COMMIT_ACTIVE_CAT[sup.sheetName] || cats[0] || 'GERAL';
+    const sn = sup.sheetName.replace(/'/g,"\\'");
+
+    // quais categorias já têm desafio preenchido (bolinha de marcação nos chips)
+    const catsWithData = new Set(
+      (typeof COMMITMENTS !== 'undefined' ? COMMITMENTS : [])
+        .filter(c => c.supervisor_sheet_name === sup.sheetName && (c.valor !== null || c.resultado !== null))
+        .map(c => c.categoria || 'GERAL')
+    );
+
+    const chips = cats.map(cat=>{
+      const ct = cat.replace(/'/g,"\\'");
+      const mark = catsWithData.has(cat) ? ' ●' : '';
+      return `<button class="cat-chip ${cat===activeCat?'active':''}" onclick="selectCommitCat('${sn}','${ct}')">${prettyLabel(cat)}${mark}</button>`;
+    }).join('');
+
+    const rows = vendors.map(v=>{
+      const c = getCommitment(sup.sheetName, v.vendedor, activeCat) || {};
+      const nec = (c.valor !== null && c.valor !== undefined) ? Number(c.valor) : null;
+      const res = (c.resultado !== null && c.resultado !== undefined) ? Number(c.resultado) : null;
+      let status = '<span style="color:var(--muted);">—</span>';
+      if(nec !== null && res !== null){
+        status = res >= nec
+          ? '<span style="color:var(--good); font-weight:700;">✓ Conseguiu</span>'
+          : '<span style="color:var(--bad); font-weight:700;">✗ Não atingiu</span>';
+      } else if(nec !== null){
+        status = '<span style="color:var(--warn);">Aguardando resultado</span>';
+      }
+      const vago = isVago(v.vendedor);
+      return '<tr class="'+(vago?'vago-row':'')+'"><td class="name-col">'+v.vendedor+'</td>'
+        + commitmentInput(sup.sheetName, v.vendedor, activeCat, 'valor', nec, editable)
+        + commitmentInput(sup.sheetName, v.vendedor, activeCat, 'resultado', res, editable)
+        + '<td style="text-align:left;">'+status+'</td></tr>';
+    }).join('');
+
+    html += `
+    <div class="section-card">
+      <div class="section-head" onclick="toggleSection(this)">
+        <span class="chev">▾</span>
+        <h3>${sup.name} — desafio: ${prettyLabel(activeCat)}</h3>
+        <span class="n">${vendors.length} vendedores${editable ? ' · você pode editar' : ''}</span>
+      </div>
+      <div class="section-body">
+        <div class="cat-filter">${chips}</div>
+        <div class="table-scroll">
+          <table class="data">
+            <thead><tr>
+              <th class="name-col" style="min-width:190px;">Vendedor</th>
+              <th style="min-width:110px;">Necessidade</th>
+              <th style="min-width:110px;">Resultado do Dia</th>
+              <th style="min-width:150px; text-align:left;">Status</th>
+            </tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+      </div>
+    </div>`;
+  });
+  return html;
+}
+
+function buildTable(section, idx, sheetName){
+  const cats = section.categories;
+  const key = catKey(sheetName, idx);
+  const hidden = VISIBLE_CATS[key] || new Set();
+  let visibleCats = cats.filter(c => !hidden.has(c.label));
+  if(visibleCats.length === 0) visibleCats = cats; // nunca deixa a tabela vazia
+
+  // campos realmente renderizados por categoria (some com Necessidade Dia se o toggle estiver desligado)
+  const visFieldsByCat = visibleCats.map(cat => cat.fields.filter(f => SHOW_DETAIL || !isDetailField(f.name)));
+
+  const sortKey = sheetName + ':' + idx;
+  const sortDir = SORT_STATE[sortKey] || null;
+
+  let catRow = '<tr class="cat-row"><th class="name-col" style="min-width:170px;">Vendedor</th><th style="min-width:50px;">PDVs</th><th style="min-width:80px;">Desemp.</th>';
+  let fieldRow = '<tr class="field-row"><th class="name-col"></th><th></th>'
+    + '<th class="sortable" onclick="toggleSort(\''+sheetName.replace(/'/g,"\\'")+'\','+idx+')">Média'
+    + (sortDir === 'asc' ? ' ▲' : sortDir === 'desc' ? ' ▼' : ' ⇅') + '</th>';
+  visibleCats.forEach((cat,ci)=>{
+    const visFields = visFieldsByCat[ci];
+    catRow += '<th colspan="'+visFields.length+'">'+prettyLabel(cat.label)+'</th>';
+    visFields.forEach((f,fi)=>{
+      const cls = fi===0 ? ' class="group-start"' : '';
+      fieldRow += '<th'+cls+'>'+f.name.trim()+'</th>';
+    });
+  });
+  catRow += '</tr>';
+  fieldRow += '</tr>';
+
+  let vendors = section.vendors.map(v=>({v, perf: vendorAvgPct(v)}));
+  const term = SEARCH_TERM.trim().toLowerCase();
+  if(term) vendors = vendors.filter(x => x.v.vendedor.toLowerCase().includes(term));
+  if(sortDir){
+    vendors.sort((a,b)=>{
+      const pa = a.perf===null ? -1 : a.perf, pb = b.perf===null ? -1 : b.perf;
+      return sortDir === 'asc' ? pa-pb : pb-pa;
+    });
+  }
+
+  let rows = '';
+  vendors.forEach(({v, perf})=>{
+    const vago = isVago(v.vendedor);
+    const p = perf===null ? {text:'—', cls:'', width:0} : fmtPct(perf);
+    rows += '<tr class="'+(vago?'vago-row':'')+'"><td class="name-col">'+v.vendedor+(vago?' <span style="font-size:10.5px;">(vaga)</span>':'')+'</td><td class="num">'+fmtInt(v.pdvs)+'</td>';
+    rows += p.text==='—' ? '<td class="num">—</td>' : '<td class="'+p.cls+'"><div class="pct-cell"><span class="pct-bar"><span style="width:'+p.width+'%"></span></span>'+p.text+'</div></td>';
+    visibleCats.forEach((cat,ci)=>{
+      const m = v.metrics.find(mm => mm.label === cat.label);
+      visFieldsByCat[ci].forEach((f,fi)=>{
+        rows += renderMetricCell(f.name, m ? m.values[f.name] : null, fi===0);
+      });
+    });
+    rows += '</tr>';
+  });
+
+  let aggRows = '';
+  section.aggregate.forEach((a,i)=>{
+    const cls = i===0 ? 'agg-total' : 'agg-company';
+    aggRows += '<tr class="'+cls+'"><td class="name-col">'+a.nome+'</td><td class="num">'+fmtInt(a.pdvs)+'</td><td class="num">—</td>';
+    visibleCats.forEach((cat,ci)=>{
+      const m = a.metrics.find(mm => mm.label === cat.label);
+      visFieldsByCat[ci].forEach((f,fi)=>{
+        aggRows += renderMetricCell(f.name, m ? m.values[f.name] : null, fi===0);
+      });
+    });
+    aggRows += '</tr>';
+  });
+
+  const sectionTitle = sectionLabel(idx);
+  const filterHtml = cats.length > 1 ? buildCategoryFilter(sheetName, idx, cats) : '';
+
+  return `
+  <div class="section-card">
+    <div class="section-head" onclick="toggleSection(this)">
+      <span class="chev">▾</span>
+      <h3>${sectionTitle}</h3>
+      <span class="n">${vendors.length}/${section.vendors.length} vendedores · ${visibleCats.length}/${cats.length} indicadores</span>
+    </div>
+    <div class="section-body">
+      ${filterHtml}
+      <div class="table-scroll">
+        <table class="data">
+          <thead>${catRow}${fieldRow}</thead>
+          <tbody>${rows}${aggRows}</tbody>
+        </table>
+      </div>
+    </div>
+  </div>`;
+}
+
+function toggleSort(sheetName, idx){
+  const key = sheetName + ':' + idx;
+  const cur = SORT_STATE[key] || null;
+  SORT_STATE[key] = cur === 'asc' ? 'desc' : cur === 'desc' ? null : 'asc';
+  render();
+}
+
+function toggleSection(headEl){
+  headEl.classList.toggle('collapsed');
+  headEl.nextElementSibling.classList.toggle('collapsed');
+}
+
+function renderSidebar(){
+  const fixed = document.getElementById('sup-list-fixed');
+  const list = document.getElementById('sup-list');
+  if(!DATA){ fixed.innerHTML=''; list.innerHTML=''; return; }
+
+  const ovActive = ACTIVE_SUP === 'OVERVIEW' ? 'active' : '';
+  const cmActive = ACTIVE_SUP === 'COMMITMENTS' ? 'active' : '';
+  const inActive = ACTIVE_SUP === 'INCENTIVO' ? 'active' : '';
+  fixed.innerHTML = `<button class="sup-btn ${ovActive}" onclick="selectSupervisor('OVERVIEW')">
+      <span class="sup-avatar">▦</span>
+      <span>Visão geral</span>
+    </button>
+    <button class="sup-btn ${cmActive}" onclick="selectSupervisor('COMMITMENTS')">
+      <span class="sup-avatar">☑</span>
+      <span>Necessidade do Dia</span>
+    </button>
+    <button class="sup-btn ${inActive}" onclick="selectSupervisor('INCENTIVO')">
+      <span class="sup-avatar">★</span>
+      <span>Incentivo</span>
+    </button>
+    <div style="border-bottom:1px solid rgba(233,223,205,0.12); margin:8px 2px 4px;"></div>`;
+
+  list.innerHTML = DATA.supervisors.map(s=>{
+    const initials = s.name.slice(0,2).toUpperCase();
+    const vendorCount = s.sections[0] ? s.sections[0].vendors.length : 0;
+    const active = s.sheetName === ACTIVE_SUP ? 'active' : '';
+    return `<button class="sup-btn ${active}" onclick="selectSupervisor('${s.sheetName.replace(/'/g,"\\'")}')">
+      <span class="sup-avatar">${initials}</span>
+      <span>${s.name}</span>
+      <span class="sup-count">${vendorCount}</span>
+    </button>`;
+  }).join('');
+}
+
+function renderTopMeta(){
+  const el = document.getElementById('meta-info');
+  if(!DATA){ el.innerHTML=''; return; }
+  const m = DATA.meta;
+  let dateStr = '—';
+  try{
+    if(m.data){
+      let d = null;
+      if(m.data instanceof Date){
+        d = m.data;
+      } else if(typeof m.data === 'object' && m.data.y){
+        d = new Date(m.data.y, m.data.m - 1, m.data.d);
+      } else if(typeof m.data === 'string'){
+        const br = m.data.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/); // dd/mm/aaaa
+        if(br){
+          const yr = br[3].length === 2 ? '20' + br[3] : br[3];
+          d = new Date(+yr, +br[2] - 1, +br[1]);
+        } else {
+          const parsed = new Date(m.data);
+          if(!isNaN(parsed)) d = parsed;
+        }
+      }
+      dateStr = (d && !isNaN(d)) ? d.toLocaleDateString('pt-BR') : String(m.data);
+    }
+  }catch(e){}
+  el.innerHTML = `
+    <span>Data: <b>${dateStr}</b></span>
+    <span>Dias úteis: <b>${m.diasUteis ?? '—'}</b></span>
+    <span>Trabalhados: <b>${m.diasTrabalhados ?? '—'}</b></span>
+    <span>Faltantes: <b>${m.diasFaltantes ?? '—'}</b></span>
+  `;
+}
+
+function selectSupervisor(sheetName){
+  ACTIVE_SUP = sheetName;
+  render();
+}
+
+function onSearch(){
+  SEARCH_TERM = document.getElementById('search').value;
+  render();
+}
+
+function kpiClass(pct){
+  if(pct===null) return '';
+  if(pct*100 >= 90) return 'kpi-good';
+  if(pct*100 >= 60) return 'kpi-warn';
+  return 'kpi-bad';
+}
+
+function sectionSums(sec){
+  let meta = 0, real = 0;
+  const totalRow = sec && sec.aggregate && sec.aggregate[0];
+  if(totalRow){
+    totalRow.metrics.forEach(m=>{
+      if(typeof m.values.Meta === 'number') meta += m.values.Meta;
+      if(typeof m.values.Real === 'number') real += m.values.Real;
+    });
+  }
+  return { meta, real };
+}
+
+function getSupCategoryValues(sup, catLabel, aggIndex){
+  for(const sec of sup.sections){
+    if(sec.categories.some(c => c.label === catLabel)){
+      const row = sec.aggregate[aggIndex];
+      if(row){
+        const m = row.metrics.find(mm => mm.label === catLabel);
+        if(m) return { meta: m.values.Meta, real: m.values.Real };
+      }
+    }
+  }
+  return null;
+}
+
+function renderOverview(){
+  const diasFaltantes = DATA.meta.diasFaltantes;
+  const groupsMap = DATA.meta.supervisorGroups || {};
+
+  // lista de todas as categorias que aparecem em qualquer supervisor, na ordem em que aparecem
+  const allCatLabels = [];
+  DATA.supervisors.forEach(s => s.sections.forEach(sec => sec.categories.forEach(c=>{
+    if(!allCatLabels.includes(c.label)) allCatLabels.push(c.label);
+  })));
+
+  const OV_KEY = catKey('OVERVIEW', 0);
+  const hidden = VISIBLE_CATS[OV_KEY] || new Set();
+  let visibleCatLabels = allCatLabels.filter(c => !hidden.has(c));
+  if(visibleCatLabels.length === 0) visibleCatLabels = allCatLabels;
+
+  const filterHtml = allCatLabels.length > 1
+    ? buildCategoryFilter('OVERVIEW', 0, allCatLabels.map(label=>({label})))
+    : '';
+
+  // cabeçalho (2 níveis)
+  let catRow = '<tr class="cat-row"><th class="name-col" style="min-width:150px;">Supervisor</th><th style="min-width:70px;">Vendedores</th>';
+  let fieldRow = '<tr class="field-row"><th class="name-col"></th><th></th>';
+  visibleCatLabels.forEach(label=>{
+    catRow += '<th colspan="4">'+prettyLabel(label)+'</th>';
+    ['Meta','Real','%','Necessidade Dia'].forEach((f,fi)=>{
+      fieldRow += '<th'+(fi===0?' class="group-start"':'')+'>'+f+'</th>';
+    });
+  });
+  catRow += '</tr>'; fieldRow += '</tr>';
+
+  function renderRow(label, vendorCount, getSums, cls, onclick){
+    let cells = `<td class="name-col">${label}</td><td class="num">${vendorCount!=null?vendorCount:'—'}</td>`;
+    visibleCatLabels.forEach(catLabel=>{
+      const sums = getSums(catLabel);
+      if(!sums){ cells += '<td class="num group-start">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td>'; return; }
+      const cell = computeCell(sums.meta, sums.real, diasFaltantes);
+      ['Meta','Real','%','Necessidade Dia'].forEach((f,fi)=>{
+        cells += renderMetricCell(f, cell[f], fi===0);
+      });
+    });
+    const onclickAttr = onclick ? ' onclick="'+onclick+'"' : '';
+    return `<tr class="${cls||''}"${onclickAttr}>${cells}</tr>`;
+  }
+
+  let body = DATA.supervisors.map(s=>{
+    const vendorCount = s.sections[0] ? s.sections[0].vendors.length : 0;
+    return renderRow(
+      s.name, vendorCount,
+      (catLabel) => getSupCategoryValues(s, catLabel, 0),
+      'ov-row', "selectSupervisor('"+s.sheetName.replace(/'/g,"\\'")+"')"
+    );
+  }).join('');
+
+  // total geral (todos os supervisores) — usa o total já calculado da empresa por categoria
+  const totalRow = renderRow(
+    'TOTAL GERAL', DATA.supervisors.reduce((n,s)=> n + (s.sections[0]?s.sections[0].vendors.length:0), 0),
+    (catLabel) => {
+      for(const s of DATA.supervisors){
+        const v = getSupCategoryValues(s, catLabel, 1); // índice 1 = total da empresa (igual em todos)
+        if(v) return v;
+      }
+      return null;
+    },
+    'agg-total'
+  );
+
+  // uma linha por grupo (ex: "Mercado Frio"), se a planilha tiver a coluna Grupo/Canal
+  const allGroupNames = [...new Set(Object.values(groupsMap).flat())];
+  const hasRevendaGroup = allGroupNames.some(g => g.trim().toLowerCase() === 'revenda');
+
+  // "Revenda" sempre equivale ao total geral (todo mundo). Se a planilha estiver
+  // usando a coluna Grupo mas não marcou "Revenda" em lugar nenhum, mostramos essa
+  // linha automaticamente — assim só precisa marcar o grupo menor (ex: Mercado Frio).
+  const revendaAliasRow = (allGroupNames.length > 0 && !hasRevendaGroup)
+    ? renderRow(
+        'REVENDA', DATA.supervisors.reduce((n,s)=> n + (s.sections[0]?s.sections[0].vendors.length:0), 0),
+        (catLabel) => {
+          for(const s of DATA.supervisors){
+            const v = getSupCategoryValues(s, catLabel, 1);
+            if(v) return v;
+          }
+          return null;
+        },
+        'agg-company'
+      )
+    : '';
+
+  const groupRows = allGroupNames.map(groupName=>{
+    const supsInGroup = DATA.supervisors.filter(s => (groupsMap[s.sheetName]||[]).includes(groupName));
+    return renderRow(
+      groupName.toUpperCase(), supsInGroup.reduce((n,s)=> n + (s.sections[0]?s.sections[0].vendors.length:0), 0),
+      (catLabel) => {
+        let meta=0, real=0, found=false;
+        supsInGroup.forEach(s=>{
+          const v = getSupCategoryValues(s, catLabel, 0);
+          if(v){ meta+=v.meta; real+=v.real; found=true; }
+        });
+        return found ? { meta, real } : null;
+      },
+      'agg-company'
+    );
+  }).join('');
+
+  return `
+    <div class="sup-header"><h2>Visão geral</h2><span class="tag">${DATA.supervisors.length} supervisores</span></div>
+    <div class="sup-sub">Meta, realizado, % e necessidade dia por supervisor, categoria a categoria. Clique numa linha para abrir o detalhe.</div>
+    <div class="legend">
+      <span><span class="dot" style="background:var(--good)"></span>≥ 90% da meta</span>
+      <span><span class="dot" style="background:var(--warn)"></span>60–90% da meta</span>
+      <span><span class="dot" style="background:var(--bad)"></span>&lt; 60% da meta</span>
+    </div>
+    <div class="section-card">
+      ${filterHtml}
+      <div class="table-scroll">
+        <table class="data">
+          <thead>${catRow}${fieldRow}</thead>
+          <tbody>${body}${totalRow}${revendaAliasRow}${groupRows}</tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+function renderSupervisor(sup){
+  const term = SEARCH_TERM.trim().toLowerCase();
+  const anyMatch = !term || sup.sections.some(sec => sec.vendors.some(v=>v.vendedor.toLowerCase().includes(term)));
+  const vendorCount = sup.sections[0] ? sup.sections[0].vendors.length : 0;
+
+  const kpis = sup.sections.map((sec,i)=>{
+    const pct = sectionAvgPct(sec);
+    const cls = kpiClass(pct);
+    const label = fmtPct(pct).text;
+    return `<div class="kpi-card ${cls}">
+      <div class="kpi-label">${sectionLabel(i)}</div>
+      <div class="kpi-value">${label}</div>
+      <div class="kpi-sub">média de atingimento · ${sec.categories.length} indicadores</div>
+    </div>`;
+  }).join('');
+
+  let html = `
+    <div class="sup-header">
+      <h2>${sup.name}</h2>
+      <span class="tag">${vendorCount} vendedores</span>
+      <span class="tag">${sup.sections.length} ${sup.sections.length === 1 ? 'bloco' : 'blocos'} de indicadores</span>
+    </div>
+    <div class="sup-sub">Metas, realizado e % de atingimento por vendedor — comparado ao total do supervisor e da empresa.</div>
+    <div class="kpi-row">${kpis}</div>
+    <div class="legend">
+      <span><span class="dot" style="background:var(--good)"></span>≥ 90% da meta</span>
+      <span><span class="dot" style="background:var(--warn)"></span>60–90% da meta</span>
+      <span><span class="dot" style="background:var(--bad)"></span>&lt; 60% da meta</span>
+    </div>
+  `;
+
+  if(anyMatch){
+    sup.sections.forEach((sec, i)=>{ html += buildTable(sec, i, sup.sheetName); });
+  }
+
+  const supClients = (typeof CLIENTS !== 'undefined' && CLIENTS) ? CLIENTS.filter(c => c.supervisor_sheet_name === sup.sheetName) : [];
+  html += buildClientTable(supClients);
+
+  return { html, anyMatch };
+}
+
+function buildClientTable(clients){
+  if(!clients || clients.length === 0) return '';
+  const sorted = [...clients].sort((a,b) => (b.dias_sem_comprar||0) - (a.dias_sem_comprar||0));
+  const term = SEARCH_TERM.trim().toLowerCase();
+  const filtered = term
+    ? sorted.filter(c => (c.cliente||'').toLowerCase().includes(term) || (c.vendedor_nome||'').toLowerCase().includes(term))
+    : sorted;
+
+  const rows = filtered.map(c=>{
+    const dias = c.dias_sem_comprar;
+    let cls = '';
+    if(typeof dias === 'number'){ cls = dias>=30 ? 'pct-bad' : dias>=15 ? 'pct-warn' : 'pct-good'; }
+    return `<tr>
+      <td class="num">${c.codigo || '—'}</td>
+      <td class="name-col">${c.cliente}</td>
+      <td>${c.vendedor_nome || '—'}</td>
+      <td>${c.canal || '—'}</td>
+      <td>${c.dia_atendimento || '—'}</td>
+      <td class="num ${cls}">${typeof dias === 'number' ? dias : '—'}</td>
+    </tr>`;
+  }).join('');
+
+  return `
+  <div class="section-card">
+    <div class="section-head" onclick="toggleSection(this)">
+      <span class="chev">▾</span>
+      <h3>Clientes sem comprar</h3>
+      <span class="n">${filtered.length}/${clients.length} clientes</span>
+    </div>
+    <div class="section-body">
+      <div class="table-scroll">
+        <table class="data">
+          <thead><tr>
+            <th>Código</th><th class="name-col">Cliente</th><th>Vendedor</th><th>Canal</th><th>Dia de atendimento</th><th>Dias sem comprar</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    </div>
+  </div>`;
+}
+
+function render(){
+  renderTopMeta();
+  renderSidebar();
+  const empty = document.getElementById('empty-state');
+  const view = document.getElementById('data-view');
+  const noMatch = document.getElementById('no-match');
+
+  if(!DATA){
+    empty.style.display = 'block';
+    view.style.display = 'none';
+    noMatch.style.display = 'none';
+    return;
+  }
+  empty.style.display = 'none';
+  view.style.display = 'block';
+
+  if(ACTIVE_SUP === 'OVERVIEW'){
+    view.innerHTML = renderOverview();
+    noMatch.style.display = 'none';
+    return;
+  }
+  if(ACTIVE_SUP === 'COMMITMENTS'){
+    view.innerHTML = renderCommitmentsPage();
+    noMatch.style.display = 'none';
+    return;
+  }
+  if(ACTIVE_SUP === 'INCENTIVO'){
+    view.innerHTML = renderIncentivoPage();
+    noMatch.style.display = 'none';
+    return;
+  }
+
+  const sup = DATA.supervisors.find(s=>s.sheetName===ACTIVE_SUP) || DATA.supervisors[0];
+  ACTIVE_SUP = sup.sheetName;
+
+  const { html, anyMatch } = renderSupervisor(sup);
+  view.innerHTML = html;
+  noMatch.style.display = anyMatch ? 'none' : 'block';
+}
+
+</script>
+<script src="auth_and_db.js"></script>
+</body>
+</html>
