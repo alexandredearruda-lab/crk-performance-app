@@ -1,0 +1,44 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Este app é HTML/JS puro (sem build step) — só publica os arquivos
+      # que o index.html realmente usa, deixando de fora scripts/, os
+      # schema*.sql e a planilha modelo.
+      - name: Preparar site
+        run: |
+          mkdir -p _site/assets
+          cp index.html _site/
+          cp auth_and_db.js _site/
+          cp assets/logo.png _site/assets/
+
+      - name: Upload do artefato do Pages
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - name: Deploy no GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
