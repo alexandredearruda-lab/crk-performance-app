@@ -19,6 +19,7 @@ let COMMITMENTS = [];             // necessidade do dia definida pelos superviso
 let INCENTIVOS = [];               // prêmio/incentivo (aba "Painel Ganho")
 let CLIENTES_MASTER = [];          // base de clientes importada de Base_Clientes.xlsx
 let NECESSIDADE_DIA_ROWS = [];     // linhas de necessidade_dia do vendedor+dia selecionados no momento
+let NECESSIDADE_SEMANA_ROWS = [];  // linhas de necessidade_dia da semana atual inteira (Seg-Sex), pro resumo
 function canEditNecessidade(supervisorNome, vendedorNome){
   if(CURRENT_ROLE === 'admin') return true;
   if(CURRENT_ROLE === 'supervisor') return CURRENT_SUP_SHEET === 'Fundamentos ' + supervisorNome;
@@ -115,6 +116,26 @@ async function onLoggedIn(user){
 }
 
 /* =====================================================================
+   O Supabase limita cada consulta a 1000 linhas por padrão — pra tabelas
+   maiores (ex: clientes, com 5000+ linhas) é preciso paginar com .range().
+===================================================================== */
+const SUPABASE_PAGE_SIZE = 1000;
+async function fetchAllRows(table, queryBuilder){
+  let all = [];
+  let start = 0;
+  while(true){
+    let q = db.from(table).select('*');
+    if(queryBuilder) q = queryBuilder(q);
+    const { data, error } = await q.range(start, start + SUPABASE_PAGE_SIZE - 1);
+    if(error) throw error;
+    all = all.concat(data || []);
+    if(!data || data.length < SUPABASE_PAGE_SIZE) break;
+    start += SUPABASE_PAGE_SIZE;
+  }
+  return all;
+}
+
+/* =====================================================================
    LEITURA DOS DADOS (o banco já filtra pelo papel de cada um via RLS —
    admin vê tudo, supervisor vê o time dele, vendedor vê só a própria linha
    + os totais de comparação)
@@ -138,8 +159,15 @@ async function loadDataFromDB(){
     }catch(e){ /* tabela pode não existir ainda — segue sem o recurso */ }
     let clienteRows = [];
     try{
-      const { data: clRows } = await db.from('clientes').select('*');
-      clienteRows = clRows || [];
+      clienteRows = await fetchAllRows('clientes');
+    }catch(e){ /* tabela pode não existir ainda — segue sem o recurso */ }
+    let necessidadeSemanaRows = [];
+    try{
+      const monday = mondayOfCurrentWeek();
+      const friday = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + 4);
+      const mondayStr = monday.toISOString().slice(0,10);
+      const fridayStr = friday.toISOString().slice(0,10);
+      necessidadeSemanaRows = await fetchAllRows('necessidade_dia', q => q.gte('data', mondayStr).lte('data', fridayStr));
     }catch(e){ /* tabela pode não existir ainda — segue sem o recurso */ }
 
     const supervisors = reconstructSupervisors(vsRows || []);
@@ -165,6 +193,7 @@ async function loadDataFromDB(){
     COMMITMENTS = commitRows;
     INCENTIVOS = incentivoRows;
     CLIENTES_MASTER = clienteRows;
+    NECESSIDADE_SEMANA_ROWS = necessidadeSemanaRows;
     const SPECIAL_VIEWS = ['OVERVIEW','COMMITMENTS','INCENTIVO'];
     if(!ACTIVE_SUP || (!SPECIAL_VIEWS.includes(ACTIVE_SUP) && !DATA.supervisors.find(s => s.sheetName === ACTIVE_SUP))){
       ACTIVE_SUP = DATA.supervisors[0].sheetName;
@@ -238,6 +267,10 @@ async function saveNecessidadeField(clienteId, vendedorCodigo, supervisorNome, v
     if(error) throw error;
     if(existing) existing[field] = num;
     else NECESSIDADE_DIA_ROWS.push({ vendedor_codigo: vendedorCodigo, cliente_id: clienteId, data: dataStr, valor_desafio: field==='valor_desafio'?num:null, valor_real: field==='valor_real'?num:null });
+    // espelha a mudança no cache da semana (resumo), pra atualizar na hora sem esperar o polling
+    const existingSemana = NECESSIDADE_SEMANA_ROWS.find(r => r.cliente_id === clienteId && r.vendedor_codigo === vendedorCodigo && r.data === dataStr);
+    if(existingSemana) existingSemana[field] = num;
+    else NECESSIDADE_SEMANA_ROWS.push({ vendedor_codigo: vendedorCodigo, cliente_id: clienteId, data: dataStr, valor_desafio: field==='valor_desafio'?num:null, valor_real: field==='valor_real'?num:null });
     render();
   }catch(e){
     console.error(e);

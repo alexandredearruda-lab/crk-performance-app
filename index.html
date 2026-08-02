@@ -1315,16 +1315,80 @@ function renderIncentivoPage(){
   return html;
 }
 
+function renderNecessidadeSemanaResumo(){
+  const rows = typeof NECESSIDADE_SEMANA_ROWS !== 'undefined' ? NECESSIDADE_SEMANA_ROWS : [];
+  const clientesById = new Map((typeof CLIENTES_MASTER !== 'undefined' ? CLIENTES_MASTER : []).map(c => [c.id, c]));
+  const porSupervisor = new Map(); // supervisorNome -> Map(vendedorCodigo -> {nome, desafio, real})
+  rows.forEach(r=>{
+    const cli = clientesById.get(r.cliente_id);
+    if(!cli) return;
+    if(!porSupervisor.has(cli.supervisor_nome)) porSupervisor.set(cli.supervisor_nome, new Map());
+    const vmap = porSupervisor.get(cli.supervisor_nome);
+    if(!vmap.has(r.vendedor_codigo)) vmap.set(r.vendedor_codigo, { nome: cli.vendedor_nome, desafio: 0, real: 0 });
+    const entry = vmap.get(r.vendedor_codigo);
+    entry.desafio += Number(r.valor_desafio) || 0;
+    entry.real += Number(r.valor_real) || 0;
+  });
+
+  if(porSupervisor.size === 0){
+    return '<div class="sup-sub">Nenhum valor de Desafio/Real lançado ainda esta semana.</div>';
+  }
+
+  const fmtNum = v => v.toLocaleString('pt-BR', {maximumFractionDigits:2});
+  const pctClass = pct => pct===null ? '' : (pct>=90 ? 'pct-good' : pct>=60 ? 'pct-warn' : 'pct-bad');
+
+  let html = '';
+  Array.from(porSupervisor.entries()).sort((a,b)=> a[0].localeCompare(b[0])).forEach(([supNome, vmap])=>{
+    let supDesafio = 0, supReal = 0;
+    const vendorRows = Array.from(vmap.values()).sort((a,b)=> a.nome.localeCompare(b.nome)).map(v=>{
+      supDesafio += v.desafio; supReal += v.real;
+      const pct = v.desafio > 0 ? Math.round((v.real / v.desafio) * 100) : null;
+      return `<tr><td class="name-col">${v.nome}</td><td class="num">${fmtNum(v.desafio)}</td><td class="num">${fmtNum(v.real)}</td><td class="num ${pctClass(pct)}">${pct===null?'—':pct+'%'}</td></tr>`;
+    }).join('');
+    const supPct = supDesafio > 0 ? Math.round((supReal / supDesafio) * 100) : null;
+
+    html += `
+    <div class="section-card">
+      <div class="section-head" onclick="toggleSection(this)">
+        <span class="chev">▾</span>
+        <h3>${supNome}</h3>
+        <span class="n">${vmap.size} vendedores · desafio ${fmtNum(supDesafio)} · real ${fmtNum(supReal)}</span>
+      </div>
+      <div class="section-body">
+        <div class="table-scroll">
+          <table class="data">
+            <thead><tr>
+              <th class="name-col" style="min-width:170px;">Vendedor</th>
+              <th style="min-width:100px;">Desafio</th>
+              <th style="min-width:100px;">Real</th>
+              <th style="min-width:70px;">%</th>
+            </tr></thead>
+            <tbody>${vendorRows}
+              <tr class="agg-total"><td class="name-col">Total ${supNome}</td><td class="num">${fmtNum(supDesafio)}</td><td class="num">${fmtNum(supReal)}</td><td class="num">${supPct===null?'—':supPct+'%'}</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>`;
+  });
+  return html;
+}
+
 function renderCommitmentsPage(){
   const vendedoresPorSup = necessidadeVendedoresPorSupervisor();
   if(vendedoresPorSup.size === 0){
     return '<div class="sup-header"><h2>Necessidade do Dia</h2></div><div class="sup-sub">Nenhum cliente importado ainda. Rode o script de importação (Base_Clientes.xlsx) e recarregue a página.</div>';
   }
 
+  const header = `
+    <div class="sup-header"><h2>Necessidade do Dia</h2></div>
+    <div class="sup-sub">Resumo da semana atual (segunda a sexta) — Desafio planejado x Real vendido, por vendedor e por supervisor.</div>
+  `;
+  const resumo = renderNecessidadeSemanaResumo();
+
   if(!NECESSIDADE_VENDEDOR){
-    let html = `
-      <div class="sup-header"><h2>Necessidade do Dia</h2></div>
-      <div class="sup-sub">Escolha um vendedor pra ver os clientes do dia e lançar Desafio (planejado) e Real (vendido) por cliente.</div>
+    let html = header + resumo + `
+      <div class="sup-sub" style="margin-top:20px;">Escolha um vendedor pra ver os clientes do dia e lançar Desafio (planejado) e Real (vendido) por cliente.</div>
     `;
     vendedoresPorSup.forEach((vmap, supNome)=>{
       const chips = Array.from(vmap.values())
@@ -1349,9 +1413,8 @@ function renderCommitmentsPage(){
   const { codigo: vendedorCodigo, nome: vendedorNome, supervisorNome } = NECESSIDADE_VENDEDOR;
   const editable = (typeof canEditNecessidade === 'function') && canEditNecessidade(supervisorNome, vendedorNome);
 
-  let html = `
-    <div class="sup-header"><h2>Necessidade do Dia</h2></div>
-    <div class="sup-sub">
+  let html = header + resumo + `
+    <div class="sup-sub" style="margin-top:20px;">
       <a href="#" onclick="voltarVendedorNecessidade();return false;">← trocar vendedor</a>
       &nbsp;·&nbsp; <b>${vendedorNome}</b> (${supervisorNome})
     </div>
