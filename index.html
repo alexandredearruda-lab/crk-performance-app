@@ -1642,7 +1642,7 @@ function groupIndicadoresRows(rows){
     }
     if(!supMap.has(r.supervisor)) supMap.set(r.supervisor, new Map());
     const vendMap = supMap.get(r.supervisor);
-    if(!vendMap.has(r.vendedor)) vendMap.set(r.vendedor, { vendedor:r.vendedor, pdvs:r.pdvs, cells:new Map() });
+    if(!vendMap.has(r.vendedor)) vendMap.set(r.vendedor, { vendedor:r.vendedor, pdvs:r.pdvs, setor:r.setor, cells:new Map() });
     vendMap.get(r.vendedor).cells.set(r.ordem_bloco, r);
   });
   const colunas = [...colsMap.values()].sort((a,b)=>a.ordemBloco-b.ordemBloco);
@@ -1650,6 +1650,26 @@ function groupIndicadoresRows(rows){
   colunas.forEach(c=>nameCount.set(c.categoria, (nameCount.get(c.categoria)||0) + 1));
   colunas.forEach(c=>{ c.displayLabel = nameCount.get(c.categoria) > 1 ? c.categoria + ' (' + c.ordemBloco + ')' : c.categoria; });
   return { supMap, colunas };
+}
+
+// Liga um vendedor das tabelas novas a um registro de "clientes" (Base_Clientes.xlsx)
+// pelo código de vendedor — setor (já gravado nas 3 tabelas) equivale ao código
+// (confirmado célula a célula contra a coluna A da planilha Fundamentos).
+// Cobertura parcial de propósito: Base_Clientes.xlsx hoje só tem ~13 dos 30
+// vendedores — pros que não têm match, o link simplesmente não aparece.
+function clienteMatchPorSetor(setor, supName){
+  if(setor === null || setor === undefined || setor === '') return null;
+  const codigo = parseInt(setor, 10);
+  if(Number.isNaN(codigo)) return null;
+  const list = typeof CLIENTES_MASTER !== 'undefined' ? CLIENTES_MASTER : [];
+  // vendedor_codigo pode vir como number ou string (int4 vs texto) dependendo
+  // do schema — compara via parseInt dos dois lados pra não depender do tipo.
+  return list.find(c => parseInt(c.vendedor_codigo, 10) === codigo && c.supervisor_nome === supName) || null;
+}
+
+function irParaNecessidadeDoVendedor(codigo, nome, supervisorNome){
+  ACTIVE_SUP = 'COMMITMENTS';
+  selecionarVendedorNecessidade(codigo, nome, supervisorNome);
 }
 
 function buildIndicadoresTable(supName, vendedores, colunas, isHeishopTab){
@@ -1669,7 +1689,13 @@ function buildIndicadoresTable(supName, vendedores, colunas, isHeishopTab){
   let rows = '';
   vendedores.forEach(v=>{
     const vago = isVago(v.vendedor);
-    rows += '<tr class="'+(vago?'vago-row':'')+'"><td class="name-col">'+v.vendedor+(vago?' <span style="font-size:10.5px;">(vaga)</span>':'')+'</td><td class="num">'+fmtInt(v.pdvs)+'</td>';
+    const match = clienteMatchPorSetor(v.setor, supName);
+    const linkNecessidade = match
+      ? ' <a href="#" title="Abrir Necessidade do Dia de '+String(match.vendedor_nome).replace(/'/g,"\\'")+'" '
+        + 'onclick="irParaNecessidadeDoVendedor(\''+String(match.vendedor_codigo).replace(/'/g,"\\'")+'\',\''+String(match.vendedor_nome).replace(/'/g,"\\'")+'\',\''+String(match.supervisor_nome).replace(/'/g,"\\'")+'\');return false;" '
+        + 'style="margin-left:6px;font-size:11px;text-decoration:none;">☑</a>'
+      : '';
+    rows += '<tr class="'+(vago?'vago-row':'')+'"><td class="name-col">'+v.vendedor+(vago?' <span style="font-size:10.5px;">(vaga)</span>':'')+linkNecessidade+'</td><td class="num">'+fmtInt(v.pdvs)+'</td>';
     colunas.forEach(col=>{
       const fields = INDIC_FIELD_DEFS[col.tipoBloco] || INDIC_FIELD_DEFS.padrao;
       const row = v.cells.get(col.ordemBloco);
