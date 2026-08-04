@@ -3,7 +3,8 @@
   "private": true,
   "type": "commonjs",
   "scripts": {
-    "import": "node import_clientes.js"
+    "import": "node import_clientes.js",
+    "import:fundamentos": "node import_fundamentos.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0",
