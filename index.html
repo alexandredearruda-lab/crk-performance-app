@@ -1805,6 +1805,13 @@ function somarColunas(vendedores, colunas){
 const DELTA_FIELD_BY_TIPO = { padrao: 'real', faturamento_pedido: 'fat_heishop', devolucao: 'dev_faturamento' };
 const VALOR_LABEL_BY_TIPO = { padrao: 'Real', faturamento_pedido: 'Fat. HEISHOP', devolucao: 'Dev. Faturamento' };
 
+// Respeita o checkbox "Mostrar Necessidade Dia" do topo do app (SHOW_DETAIL,
+// já usado nas outras tabelas) — some com Necessidade Dia quando desmarcado.
+function indicFieldsToShow(tipoBloco){
+  const fields = INDIC_FIELD_DEFS[tipoBloco] || INDIC_FIELD_DEFS.padrao;
+  return SHOW_DETAIL ? fields : fields.filter(f => !isDetailField(f.label));
+}
+
 function renderDeltaCell(valorAtual, valorAnterior){
   if(typeof valorAtual !== 'number' || typeof valorAnterior !== 'number' || valorAnterior === 0){
     return '<td class="num delta-col">—</td>';
@@ -1832,7 +1839,7 @@ function buildIndicTableHeader(firstColLabel, colunas, isHeishopTab, comparacaoL
       catRow += '<th colspan="3" title="'+(col.categoriaDescricao||'').replace(/"/g,'&quot;')+'">'+prettyLabel(label)+'</th>';
       fieldRow += '<th class="group-start">'+valorLabel+' '+mesAtualLabel+'</th><th>'+valorLabel+' '+comparacaoLabel+'</th><th class="delta-col">Δ%</th>';
     } else {
-      const fields = INDIC_FIELD_DEFS[col.tipoBloco] || INDIC_FIELD_DEFS.padrao;
+      const fields = indicFieldsToShow(col.tipoBloco);
       catRow += '<th colspan="'+fields.length+'" title="'+(col.categoriaDescricao||'').replace(/"/g,'&quot;')+'">'+prettyLabel(label)+'</th>';
       fields.forEach((f,fi)=>{ fieldRow += '<th'+(fi===0?' class="group-start"':'')+'>'+f.label+'</th>'; });
     }
@@ -1857,7 +1864,7 @@ function renderVendorRowCells(v, compVendEntry, colunas, comparacaoLabel){
       html += renderIndicCell('num', valorAnterior);
       html += renderDeltaCell(valorAtual, valorAnterior);
     } else {
-      const fields = INDIC_FIELD_DEFS[col.tipoBloco] || INDIC_FIELD_DEFS.padrao;
+      const fields = indicFieldsToShow(col.tipoBloco);
       fields.forEach(f=>{ html += renderIndicCell(f.kind, row ? row[f.key] : null); });
     }
   });
@@ -1882,7 +1889,7 @@ function renderAggregateRowCells(vendedores, compVendedores, colunas, comparacao
       html += renderIndicCell('num', valorAnterior);
       html += renderDeltaCell(valorAtual, valorAnterior);
     } else {
-      const fields = INDIC_FIELD_DEFS[col.tipoBloco] || INDIC_FIELD_DEFS.padrao;
+      const fields = indicFieldsToShow(col.tipoBloco);
       fields.forEach(f=>{
         if(!s){ html += renderIndicCell(f.kind, null); return; }
         html += renderIndicCell(f.kind, f.kind === 'pct' ? (s._pct !== undefined ? s._pct : null) : s[f.key]);
