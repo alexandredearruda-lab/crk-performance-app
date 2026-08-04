@@ -33,6 +33,7 @@ jobs:
           cp index.html _site/
           cp auth_and_db.js _site/
           cp assets/logo.png _site/assets/
+          cp assets/logo-branco.png _site/assets/
 
       - name: Upload do artefato do Pages
         uses: actions/upload-pages-artifact@v3
