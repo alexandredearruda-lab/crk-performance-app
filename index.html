@@ -494,6 +494,16 @@ let INDICADORES_DATE = null;   // data_referencia selecionada
 let INDICADORES_DATE_COMPARACAO = null; // data_referencia a comparar (null = sem comparação)
 let INDICADORES_SUBTAB = 'volume'; // 'volume' | 'cobertura' | 'heishop'
 let INDICADORES_SUP_FILTER = null; // null = todos os supervisores, ou o nome de um só
+// Ordem dos supervisores como aparecem na planilha Fundamentos (não alfabética).
+// Supervisor desconhecido (roster mudou) cai no fim, em ordem alfabética entre si.
+const ORDEM_SUPERVISORES = ['JUBERTO', 'JULIANA', 'FLAVIA', 'FELIPE', 'LUCIO'];
+function compararSupervisores(a, b){
+  const ia = ORDEM_SUPERVISORES.indexOf(a), ib = ORDEM_SUPERVISORES.indexOf(b);
+  if(ia === -1 && ib === -1) return a.localeCompare(b);
+  if(ia === -1) return 1;
+  if(ib === -1) return -1;
+  return ia - ib;
+}
 // { volume: Set(ordemBloco), cobertura: Set(...), heishop: Set(...) } — vazio = mostra
 // todas as categorias; não-vazio = mostra SÓ as categorias selecionadas (multi-seleção).
 const INDICADORES_CAT_SELECTED = {};
@@ -1907,7 +1917,7 @@ function renderAggregateRowCells(vendedores, compVendedores, colunas, comparacao
 function buildIndicSummaryTable(supMap, colunas, isHeishopTab, compSupMap, comparacaoLabel, mesAtualLabel){
   const header = buildIndicTableHeader('Supervisor', colunas, isHeishopTab, comparacaoLabel, mesAtualLabel);
 
-  const supNames = [...supMap.keys()].sort();
+  const supNames = [...supMap.keys()].sort(compararSupervisores);
   let rows = '';
   let todosVendedores = [];
   let todosVendedoresComp = [];
@@ -2136,7 +2146,7 @@ function renderIndicadoresPage(){
       if(!supMap.has(sup)) supMap.set(sup, []);
       supMap.get(sup).push(c);
     });
-    const supNames = [...supMap.keys()].sort();
+    const supNames = [...supMap.keys()].sort(compararSupervisores);
     const supervisorRow = filtroRow('Supervisor', buildIndicSupervisorFilter(supNames));
 
     let html = '<div class="indic-filtros">'+mesRow+indicadorRow+supervisorRow+'</div>';
@@ -2165,7 +2175,7 @@ function renderIndicadoresPage(){
     : null;
 
   const { supMap, colunas } = groupIndicadoresRows(rowsForDate);
-  const supNames = [...supMap.keys()].sort();
+  const supNames = [...supMap.keys()].sort(compararSupervisores);
   const isHeishopTab = activeKey === 'heishop';
 
   // categoria acima, supervisor abaixo — nessa ordem, como pedido — dentro do
