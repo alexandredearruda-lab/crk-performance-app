@@ -1759,9 +1759,18 @@ function groupIndicadoresRows(rows){
     vendMap.get(r.vendedor).cells.set(r.ordem_bloco, r);
   });
   const colunas = [...colsMap.values()].sort((a,b)=>a.ordemBloco-b.ordemBloco);
-  const nameCount = new Map();
-  colunas.forEach(c=>nameCount.set(c.categoria, (nameCount.get(c.categoria)||0) + 1));
-  colunas.forEach(c=>{ c.displayLabel = nameCount.get(c.categoria) > 1 ? c.categoria + ' (' + c.ordemBloco + ')' : c.categoria; });
+  // occurrenceIndex: 0 pra 1ª vez que essa categoria aparece nesse mês, 1 pra
+  // 2ª, etc — usado (junto com o nome da categoria) pra casar colunas entre
+  // meses diferentes na comparação, já que a posição do bloco pode mudar de
+  // mês pra mês (confirmado: abril tem ordem diferente de maio/junho/julho).
+  const totalCount = new Map();
+  colunas.forEach(c=>totalCount.set(c.categoria, (totalCount.get(c.categoria)||0) + 1));
+  const seenCount = new Map();
+  colunas.forEach(c=>{
+    c.occurrenceIndex = seenCount.get(c.categoria) || 0;
+    seenCount.set(c.categoria, c.occurrenceIndex + 1);
+    c.displayLabel = totalCount.get(c.categoria) > 1 ? c.categoria + ' (' + c.ordemBloco + ')' : c.categoria;
+  });
   return { supMap, colunas };
 }
 
@@ -1859,16 +1868,19 @@ function buildIndicTableHeader(firstColLabel, colunas, isHeishopTab, comparacaoL
 }
 
 // Células de UM vendedor. Em modo comparação: valor do mês atual, valor do
-// mês de comparação, e a variação % entre os dois. Sem comparação: os 4
-// campos normais (Meta/Real/%/Necessidade Dia), como sempre.
-function renderVendorRowCells(v, compVendEntry, colunas, comparacaoLabel){
+// mês de comparação, e a variação % entre os dois. A célula do mês comparado
+// é achada por categoria+ocorrência (compOrdemByKey), não pela posição do
+// bloco — a ordem dos blocos pode mudar de mês pra mês (visto em abril).
+// Sem comparação: os 4 campos normais (Meta/Real/%/Necessidade Dia), como sempre.
+function renderVendorRowCells(v, compVendEntry, colunas, comparacaoLabel, compOrdemByKey){
   let html = '';
   colunas.forEach(col=>{
     const row = v.cells.get(col.ordemBloco);
     if(comparacaoLabel){
       const field = DELTA_FIELD_BY_TIPO[col.tipoBloco] || 'real';
       const valorAtual = row ? row[field] : null;
-      const compRow = compVendEntry ? compVendEntry.cells.get(col.ordemBloco) : null;
+      const compOrdemBloco = compOrdemByKey ? compOrdemByKey.get(col.categoria + '|' + col.occurrenceIndex) : undefined;
+      const compRow = (compVendEntry && compOrdemBloco !== undefined) ? compVendEntry.cells.get(compOrdemBloco) : null;
       const valorAnterior = compRow ? compRow[field] : null;
       html += renderIndicCell('num', valorAtual);
       html += renderIndicCell('num', valorAnterior);
@@ -1882,19 +1894,28 @@ function renderVendorRowCells(v, compVendEntry, colunas, comparacaoLabel){
 }
 
 // Células de uma linha agregada (total de um supervisor, ou TOTAL REVENDA).
-// Mesma lógica: em comparação, soma do mês atual, soma do mês de comparação,
-// e a variação % entre as duas somas.
-function renderAggregateRowCells(vendedores, compVendedores, colunas, comparacaoLabel){
+// Mesma lógica de tradução por categoria+ocorrência pro lado comparado — soma
+// direto pelas ordem_bloco traduzidas em vez de reaproveitar somarColunas (que
+// assume os mesmos ordem_bloco dos dois lados, o que não vale entre meses com
+// ordem de bloco diferente).
+function renderAggregateRowCells(vendedores, compVendedores, colunas, comparacaoLabel, compOrdemByKey){
   const somas = somarColunas(vendedores, colunas);
-  const somasComp = comparacaoLabel ? somarColunas(compVendedores || [], colunas) : null;
   let html = '';
   colunas.forEach(col=>{
     const s = somas.get(col.ordemBloco);
     if(comparacaoLabel){
       const field = DELTA_FIELD_BY_TIPO[col.tipoBloco] || 'real';
       const valorAtual = s ? s[field] : null;
-      const sComp = somasComp.get(col.ordemBloco);
-      const valorAnterior = sComp ? sComp[field] : null;
+      const compOrdemBloco = compOrdemByKey ? compOrdemByKey.get(col.categoria + '|' + col.occurrenceIndex) : undefined;
+      let valorAnterior = null;
+      if(compOrdemBloco !== undefined && compVendedores && compVendedores.length){
+        let soma = 0, any = false;
+        compVendedores.forEach(v=>{
+          const row = v.cells.get(compOrdemBloco);
+          if(row && typeof row[field] === 'number'){ soma += row[field]; any = true; }
+        });
+        valorAnterior = any ? soma : null;
+      }
       html += renderIndicCell('num', valorAtual);
       html += renderIndicCell('num', valorAnterior);
       html += renderDeltaCell(valorAtual, valorAnterior);
@@ -1914,7 +1935,7 @@ function renderAggregateRowCells(vendedores, compVendedores, colunas, comparacao
 // mostra TODOS os supervisores e o total da empresa inteira, independente do
 // filtro de supervisor (que só afeta as tabelas de detalhe abaixo); o
 // supervisor filtrado, se houver, fica destacado com uma borda.
-function buildIndicSummaryTable(supMap, colunas, isHeishopTab, compSupMap, comparacaoLabel, mesAtualLabel){
+function buildIndicSummaryTable(supMap, colunas, isHeishopTab, compSupMap, comparacaoLabel, mesAtualLabel, compOrdemByKey){
   const header = buildIndicTableHeader('Supervisor', colunas, isHeishopTab, comparacaoLabel, mesAtualLabel);
 
   const supNames = [...supMap.keys()].sort(compararSupervisores);
@@ -1929,13 +1950,13 @@ function buildIndicSummaryTable(supMap, colunas, isHeishopTab, compSupMap, compa
     const pdvs = vendedores.reduce((s,v)=>s+(v.pdvs||0),0);
     const destaque = INDICADORES_SUP_FILTER === sup ? ' style="box-shadow:inset 3px 0 0 var(--copper);"' : '';
     rows += '<tr'+destaque+'><td class="name-col">'+sup+'</td><td class="num">'+fmtInt(pdvs)+'</td>';
-    rows += renderAggregateRowCells(vendedores, compVendedores, colunas, comparacaoLabel);
+    rows += renderAggregateRowCells(vendedores, compVendedores, colunas, comparacaoLabel, compOrdemByKey);
     rows += '</tr>';
   });
 
   const pdvsTotal = todosVendedores.reduce((s,v)=>s+(v.pdvs||0),0);
   let totalRow = '<tr class="agg-total"><td class="name-col">TOTAL REVENDA</td><td class="num">'+fmtInt(pdvsTotal)+'</td>';
-  totalRow += renderAggregateRowCells(todosVendedores, todosVendedoresComp, colunas, comparacaoLabel);
+  totalRow += renderAggregateRowCells(todosVendedores, todosVendedoresComp, colunas, comparacaoLabel, compOrdemByKey);
   totalRow += '</tr>';
 
   return `
@@ -1950,7 +1971,7 @@ function buildIndicSummaryTable(supMap, colunas, isHeishopTab, compSupMap, compa
   </div>`;
 }
 
-function buildIndicadoresTable(supName, vendedores, colunas, isHeishopTab, compSupMap, comparacaoLabel, mesAtualLabel){
+function buildIndicadoresTable(supName, vendedores, colunas, isHeishopTab, compSupMap, comparacaoLabel, mesAtualLabel, compOrdemByKey){
   const header = buildIndicTableHeader('Vendedor', colunas, isHeishopTab, comparacaoLabel, mesAtualLabel);
   const compVendMap = compSupMap ? compSupMap.get(supName) : null;
 
@@ -1964,13 +1985,13 @@ function buildIndicadoresTable(supName, vendedores, colunas, isHeishopTab, compS
         + 'style="margin-left:6px;font-size:11px;text-decoration:none;">☑</a>'
       : '';
     rows += '<tr class="'+(vago?'vago-row':'')+'"><td class="name-col">'+v.vendedor+(vago?' <span style="font-size:10.5px;">(vaga)</span>':'')+linkNecessidade+'</td><td class="num">'+fmtInt(v.pdvs)+'</td>';
-    rows += renderVendorRowCells(v, compVendMap ? compVendMap.get(v.vendedor) : null, colunas, comparacaoLabel);
+    rows += renderVendorRowCells(v, compVendMap ? compVendMap.get(v.vendedor) : null, colunas, comparacaoLabel, compOrdemByKey);
     rows += '</tr>';
   });
 
   const compVendedoresList = compVendMap ? [...compVendMap.values()] : [];
   let totalRow = '<tr class="agg-total"><td class="name-col">'+supName+' (total)</td><td class="num">'+fmtInt(vendedores.reduce((s,v)=>s+(v.pdvs||0),0))+'</td>';
-  totalRow += renderAggregateRowCells(vendedores, compVendedoresList, colunas, comparacaoLabel);
+  totalRow += renderAggregateRowCells(vendedores, compVendedoresList, colunas, comparacaoLabel, compOrdemByKey);
   totalRow += '</tr>';
 
   return `
@@ -2170,9 +2191,15 @@ function renderIndicadoresPage(){
   // "Nenhuma" desliga. Não deixa comparar o mês selecionado com ele mesmo.
   const comparacaoLabel = (INDICADORES_DATE_COMPARACAO && outrosMeses.includes(INDICADORES_DATE_COMPARACAO))
     ? fmtMesAno(INDICADORES_DATE_COMPARACAO) : null;
-  const compSupMap = comparacaoLabel
-    ? groupIndicadoresRows(tabDefs.find(t=>t.key===activeKey).rows.filter(r=>r.data_referencia===INDICADORES_DATE_COMPARACAO)).supMap
-    : null;
+  let compSupMap = null;
+  let compOrdemByKey = null; // "categoria|ocorrência" -> ordem_bloco DO MÊS COMPARADO
+  if(comparacaoLabel){
+    const rowsComp = tabDefs.find(t=>t.key===activeKey).rows.filter(r=>r.data_referencia===INDICADORES_DATE_COMPARACAO);
+    const grouped = groupIndicadoresRows(rowsComp);
+    compSupMap = grouped.supMap;
+    compOrdemByKey = new Map();
+    grouped.colunas.forEach(c => compOrdemByKey.set(c.categoria + '|' + c.occurrenceIndex, c.ordemBloco));
+  }
 
   const { supMap, colunas } = groupIndicadoresRows(rowsForDate);
   const supNames = [...supMap.keys()].sort(compararSupervisores);
@@ -2188,7 +2215,7 @@ function renderIndicadoresPage(){
   const selectedCats = INDICADORES_CAT_SELECTED[activeKey] || new Set();
   const visibleColunas = selectedCats.size === 0 ? colunas : colunas.filter(c => selectedCats.has(c.ordemBloco));
 
-  html += buildIndicSummaryTable(supMap, visibleColunas, isHeishopTab, compSupMap, comparacaoLabel, fmtMesAno(INDICADORES_DATE));
+  html += buildIndicSummaryTable(supMap, visibleColunas, isHeishopTab, compSupMap, comparacaoLabel, fmtMesAno(INDICADORES_DATE), compOrdemByKey);
 
   const supsToShow = (INDICADORES_SUP_FILTER && supMap.has(INDICADORES_SUP_FILTER))
     ? [INDICADORES_SUP_FILTER] : supNames;
@@ -2202,7 +2229,7 @@ function renderIndicadoresPage(){
     let vendedores = [...supMap.get(supName).values()];
     if(term) vendedores = vendedores.filter(v=>v.vendedor.toLowerCase().includes(term));
     if(!vendedores.length) return;
-    html += buildIndicadoresTable(supName, vendedores, visibleColunas, isHeishopTab, compSupMap, comparacaoLabel, fmtMesAno(INDICADORES_DATE));
+    html += buildIndicadoresTable(supName, vendedores, visibleColunas, isHeishopTab, compSupMap, comparacaoLabel, fmtMesAno(INDICADORES_DATE), compOrdemByKey);
     anyRendered = true;
   });
   if(!anyRendered) html += '<div class="sup-sub">Nenhum vendedor encontrado.</div>';

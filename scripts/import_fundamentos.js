@@ -287,8 +287,12 @@ async function main() {
   for (const aba of ABAS) {
     const ws = wb.Sheets[aba.nome];
     if (!ws) {
-      console.error(`Aba "${aba.nome}" não encontrada no arquivo.`);
-      process.exit(1);
+      // Nem todo mês tem as 3 abas (ex: HEISHOP só passou a existir a partir
+      // de um certo mês) — pula essa tabela pra esse arquivo em vez de abortar
+      // o import inteiro. Não mexe em nada que já existe pra essa data_referencia
+      // nessa tabela (o --commit só apaga/reinsere as tabelas que forem processadas).
+      console.warn(`⚠ Aba "${aba.nome}" não encontrada no arquivo — pulando ${aba.tabela} pra esse mês.`);
+      continue;
     }
     const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: null });
     const resultado = despivotarAba(rows, {
