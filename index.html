@@ -288,6 +288,19 @@
   }
   .cat-chip:hover{ border-color:var(--copper); color:var(--ink); }
   .cat-chip.active{ background:var(--malt-900); color:#FFFFFF; border-color:var(--malt-900); }
+
+  /* ---------- Painel de filtros da aba Indicadores (Mês/Indicador/Categoria/Supervisor) ---------- */
+  .indic-filtros{ background:var(--paper-2); border:1px solid var(--line); border-radius:14px; padding:14px 16px; margin-bottom:20px; }
+  .indic-filtros .filtro-row{ display:flex; align-items:baseline; gap:14px; padding:7px 0; border-bottom:1px solid var(--line); }
+  .indic-filtros .filtro-row:last-child{ border-bottom:none; }
+  .indic-filtros .filtro-row.filtro-row-stack{ flex-direction:column; align-items:stretch; gap:6px; }
+  .indic-filtros .filtro-line{ display:flex; align-items:baseline; gap:14px; }
+  .indic-filtros .filtro-label{
+    font-family:'IBM Plex Mono',monospace; font-size:10px; text-transform:uppercase;
+    letter-spacing:.06em; color:var(--muted); min-width:96px; flex:0 0 auto; padding-top:5px;
+  }
+  .indic-filtros .chip-row{ display:flex; flex-wrap:wrap; gap:6px; flex:1; }
+  .indic-filtros .cat-chip{ padding:5px 12px; font-size:11.5px; }
   .cat-chip-all{ font-weight:700; }
 
   table.overview td.ov-name{ font-weight:600; font-family:'Fraunces',serif; font-size:15px; }
@@ -1984,7 +1997,7 @@ function buildIndicCategoryFilter(subtab, colunas, isHeishopTab){
     const label = (isHeishopTab && col.categoria === 'rgb mainstream') ? 'Heishop' : col.displayLabel;
     chips += '<button class="cat-chip '+(active?'active':'')+'" onclick="toggleIndicadoresCat(\''+subtab+'\','+col.ordemBloco+')">'+prettyLabel(label)+'</button>';
   });
-  return '<div class="cat-filter" style="margin-bottom:10px;">'+chips+'</div>';
+  return chips;
 }
 
 // Filtro de SUPERVISOR — clicar num supervisor mostra só o time dele.
@@ -1994,7 +2007,13 @@ function buildIndicSupervisorFilter(supNames){
     const active = INDICADORES_SUP_FILTER === sup;
     chips += '<button class="cat-chip '+(active?'active':'')+'" onclick="selectIndicadoresSup(\''+sup.replace(/'/g,"\\'")+'\')">'+sup+'</button>';
   });
-  return '<div class="cat-filter" style="margin-bottom:16px;">'+chips+'</div>';
+  return chips;
+}
+
+// Uma fileira do painel de filtros: rótulo à esquerda + chips à direita,
+// todos alinhados na mesma coluna entre fileiras diferentes.
+function filtroRow(label, chipsHtml){
+  return '<div class="filtro-row"><span class="filtro-label">'+label+'</span><div class="chip-row">'+chipsHtml+'</div></div>';
 }
 
 // "Clientes sem comprar" — lista por supervisor, ordenada por dias sem
@@ -2043,34 +2062,6 @@ function buildClientesSemCompraTable(supName, clientes){
   </div>`;
 }
 
-function renderClientesSemCompraTab(rowsForDate){
-  const supMap = new Map();
-  rowsForDate.forEach(c=>{
-    const sup = c.supervisor || '(sem supervisor)';
-    if(!supMap.has(sup)) supMap.set(sup, []);
-    supMap.get(sup).push(c);
-  });
-  const supNames = [...supMap.keys()].sort();
-
-  let html = buildIndicSupervisorFilter(supNames);
-
-  const supsToShow = (INDICADORES_SUP_FILTER && supMap.has(INDICADORES_SUP_FILTER))
-    ? [INDICADORES_SUP_FILTER] : supNames;
-
-  const term = SEARCH_TERM.trim().toLowerCase();
-  let anyRendered = false;
-  supsToShow.forEach(supName=>{
-    let clientes = [...supMap.get(supName)].sort((a,b)=> (b.dias_sem_comprar||0) - (a.dias_sem_comprar||0));
-    if(term) clientes = clientes.filter(c => c.fantasia.toLowerCase().includes(term) || (c.vendedor||'').toLowerCase().includes(term));
-    if(!clientes.length) return;
-    html += buildClientesSemCompraTable(supName, clientes);
-    anyRendered = true;
-  });
-  if(!anyRendered) html += '<div class="sup-sub">Nenhum cliente encontrado.</div>';
-
-  return html;
-}
-
 function renderIndicadoresPage(){
   if(!INDICADORES_DATA){
     return '<div class="section-card"><div class="section-body" style="padding:20px;">Carregando indicadores…</div></div>';
@@ -2081,9 +2072,6 @@ function renderIndicadoresPage(){
   }
 
   const fmtMesAno = d => new Date(d+'T00:00:00').toLocaleDateString('pt-BR', {month:'2-digit', year:'numeric'});
-  const dateChips = datasDisponiveis.map(d=>
-    '<button class="cat-chip '+(d===INDICADORES_DATE?'active':'')+'" onclick="selectIndicadoresDate(\''+d+'\')">'+fmtMesAno(d)+'</button>'
-  ).join('');
 
   const tabDefs = [
     { key:'volume', label:'Volume', rows:volume },
@@ -2093,38 +2081,70 @@ function renderIndicadoresPage(){
   ];
   const rowsByTab = {};
   tabDefs.forEach(t=>{ rowsByTab[t.key] = t.rows.filter(r=>r.data_referencia === INDICADORES_DATE); });
-  const tabChips = tabDefs.map(t=>
-    '<button class="cat-chip '+(t.key===INDICADORES_SUBTAB?'active':'')+'" onclick="selectIndicadoresTab(\''+t.key+'\')">'+t.label+' ('+rowsByTab[t.key].length+')</button>'
-  ).join('');
-
-  let html = '<div class="cat-filter" style="margin-bottom:10px;">'+dateChips+'</div>';
-  html += '<div class="cat-filter" style="margin-bottom:16px;">'+tabChips+'</div>';
 
   const activeKey = tabDefs.find(t=>t.key===INDICADORES_SUBTAB) ? INDICADORES_SUBTAB : 'volume';
+  const isSemCompra = activeKey === 'sem_compra';
   const rowsForDate = rowsByTab[activeKey];
-  if(!rowsForDate.length){
-    html += '<div class="sup-sub">Sem dados dessa aba pra essa data.</div>';
-    return html;
-  }
-
-  // "Clientes sem comprar" tem forma bem diferente das outras 3 (sem categoria,
-  // sem Meta/Real) — segue por um caminho de renderização próprio, sem comparação.
-  if(activeKey === 'sem_compra'){
-    return html + renderClientesSemCompraTab(rowsForDate);
-  }
-
-  // Comparação mês a mês — só faz sentido com 2+ meses disponíveis; opção
-  // "Nenhuma" desliga. Não deixa comparar o mês selecionado com ele mesmo.
   const outrosMeses = datasDisponiveis.filter(d => d !== INDICADORES_DATE);
-  if(outrosMeses.length){
+
+  // Fileira "Mês" — com "comparar com" logo abaixo, alinhado na mesma coluna
+  // (rótulo embaixo de rótulo, chips embaixo de chips). Não se aplica a
+  // "Clientes sem comprar" (não tem comparação).
+  const mesChips = datasDisponiveis.map(d=>
+    '<button class="cat-chip '+(d===INDICADORES_DATE?'active':'')+'" onclick="selectIndicadoresDate(\''+d+'\')">'+fmtMesAno(d)+'</button>'
+  ).join('');
+  let mesRow = '<div class="filtro-row filtro-row-stack">'
+    + '<div class="filtro-line"><span class="filtro-label">Mês</span><div class="chip-row">'+mesChips+'</div></div>';
+  if(!isSemCompra && outrosMeses.length){
     const noneActive = !INDICADORES_DATE_COMPARACAO ? 'active' : '';
     let compChips = '<button class="cat-chip '+noneActive+'" onclick="selectIndicadoresComparacao(null)">Nenhuma</button>';
     compChips += outrosMeses.map(d=>
       '<button class="cat-chip '+(d===INDICADORES_DATE_COMPARACAO?'active':'')+'" onclick="selectIndicadoresComparacao(\''+d+'\')">'+fmtMesAno(d)+'</button>'
     ).join('');
-    html += '<div class="sup-sub" style="margin-top:0;">Comparar com:</div>';
-    html += '<div class="cat-filter" style="margin-bottom:16px;">'+compChips+'</div>';
+    mesRow += '<div class="filtro-line"><span class="filtro-label">comparar com</span><div class="chip-row">'+compChips+'</div></div>';
   }
+  mesRow += '</div>';
+
+  const tabChips = tabDefs.map(t=>
+    '<button class="cat-chip '+(t.key===INDICADORES_SUBTAB?'active':'')+'" onclick="selectIndicadoresTab(\''+t.key+'\')">'+t.label+' ('+rowsByTab[t.key].length+')</button>'
+  ).join('');
+  const indicadorRow = filtroRow('Indicador', tabChips);
+
+  if(!rowsForDate.length){
+    return '<div class="indic-filtros">'+mesRow+indicadorRow+'</div><div class="sup-sub">Sem dados dessa aba pra essa data.</div>';
+  }
+
+  // "Clientes sem comprar" tem forma bem diferente das outras 3 (sem
+  // categoria, sem Meta/Real) — só o filtro de supervisor se aplica aqui.
+  if(isSemCompra){
+    const supMap = new Map();
+    rowsForDate.forEach(c=>{
+      const sup = c.supervisor || '(sem supervisor)';
+      if(!supMap.has(sup)) supMap.set(sup, []);
+      supMap.get(sup).push(c);
+    });
+    const supNames = [...supMap.keys()].sort();
+    const supervisorRow = filtroRow('Supervisor', buildIndicSupervisorFilter(supNames));
+
+    let html = '<div class="indic-filtros">'+mesRow+indicadorRow+supervisorRow+'</div>';
+
+    const supsToShow = (INDICADORES_SUP_FILTER && supMap.has(INDICADORES_SUP_FILTER))
+      ? [INDICADORES_SUP_FILTER] : supNames;
+    const term = SEARCH_TERM.trim().toLowerCase();
+    let anyRendered = false;
+    supsToShow.forEach(supName=>{
+      let clientes = [...supMap.get(supName)].sort((a,b)=> (b.dias_sem_comprar||0) - (a.dias_sem_comprar||0));
+      if(term) clientes = clientes.filter(c => c.fantasia.toLowerCase().includes(term) || (c.vendedor||'').toLowerCase().includes(term));
+      if(!clientes.length) return;
+      html += buildClientesSemCompraTable(supName, clientes);
+      anyRendered = true;
+    });
+    if(!anyRendered) html += '<div class="sup-sub">Nenhum cliente encontrado.</div>';
+    return html;
+  }
+
+  // Comparação mês a mês — só faz sentido com 2+ meses disponíveis; opção
+  // "Nenhuma" desliga. Não deixa comparar o mês selecionado com ele mesmo.
   const comparacaoLabel = (INDICADORES_DATE_COMPARACAO && outrosMeses.includes(INDICADORES_DATE_COMPARACAO))
     ? fmtMesAno(INDICADORES_DATE_COMPARACAO) : null;
   const compSupMap = comparacaoLabel
@@ -2135,9 +2155,11 @@ function renderIndicadoresPage(){
   const supNames = [...supMap.keys()].sort();
   const isHeishopTab = activeKey === 'heishop';
 
-  // categoria acima, supervisor abaixo — nessa ordem, como pedido
-  html += buildIndicCategoryFilter(activeKey, colunas, isHeishopTab);
-  html += buildIndicSupervisorFilter(supNames);
+  // categoria acima, supervisor abaixo — nessa ordem, como pedido — dentro do
+  // mesmo painel de filtros que Mês/Indicador.
+  const categoriaRow = filtroRow('Categoria', buildIndicCategoryFilter(activeKey, colunas, isHeishopTab));
+  const supervisorRow = filtroRow('Supervisor', buildIndicSupervisorFilter(supNames));
+  let html = '<div class="indic-filtros">'+mesRow+indicadorRow+categoriaRow+supervisorRow+'</div>';
 
   // seleção vazia = mostra todas as categorias; com 1+ selecionadas, mostra só essas
   const selectedCats = INDICADORES_CAT_SELECTED[activeKey] || new Set();
