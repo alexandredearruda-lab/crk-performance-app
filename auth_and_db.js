@@ -212,7 +212,7 @@ async function loadDataFromDB(){
     INCENTIVOS = incentivoRows;
     CLIENTES_MASTER = clienteRows;
     NECESSIDADE_SEMANA_ROWS = necessidadeSemanaRows;
-    const SPECIAL_VIEWS = ['OVERVIEW','COMMITMENTS','INCENTIVO'];
+    const SPECIAL_VIEWS = ['COMMITMENTS','INCENTIVO','INDICADORES'];
     if(!ACTIVE_SUP || (!SPECIAL_VIEWS.includes(ACTIVE_SUP) && !DATA.supervisors.find(s => s.sheetName === ACTIVE_SUP))){
       ACTIVE_SUP = DATA.supervisors[0].sheetName;
     }

@@ -468,7 +468,7 @@
    ESTADO
 ===================================================================== */
 let DATA = null;          // { meta, supervisors:[...] }
-let ACTIVE_SUP = null;     // sheetName ativo, ou 'OVERVIEW'
+let ACTIVE_SUP = 'INDICADORES'; // sheetName ativo, ou 'INDICADORES'/'COMMITMENTS'/'INCENTIVO'
 let SEARCH_TERM = '';
 const SECTION_LABELS = ['Volume (HL)', 'Cobertura (PDVs positivados)', 'Outros indicadores'];
 const SORT_STATE = {}; // { "sheetName:sectionIdx": 'asc'|'desc'|null }
@@ -483,6 +483,8 @@ function sectionLabel(i){ return SECTION_LABELS[i] || ('Bloco ' + (i+1)); }
 let INDICADORES_DATA = null;   // { volume:[...], cobertura:[...], heishop:[...], datasDisponiveis:[...] }
 let INDICADORES_DATE = null;   // data_referencia selecionada
 let INDICADORES_SUBTAB = 'volume'; // 'volume' | 'cobertura' | 'heishop'
+let INDICADORES_SUP_FILTER = null; // null = todos os supervisores, ou o nome de um só
+const INDICADORES_CAT_HIDDEN = {}; // { volume: Set(ordemBloco), cobertura: Set(...), heishop: Set(...) }
 
 function colLetterToNum(ws, r, c){
   const addr = XLSX.utils.encode_cell({r:r-1, c:c-1});
@@ -1655,12 +1657,18 @@ function groupIndicadoresRows(rows){
   return { supMap, colunas };
 }
 
-function buildIndicadoresTable(supName, vendedores, colunas){
+function buildIndicadoresTable(supName, vendedores, colunas, showCatDescricao){
   let catRow = '<tr class="cat-row"><th class="name-col" style="min-width:170px;">Vendedor</th><th style="min-width:50px;">PDVs</th>';
   let fieldRow = '<tr class="field-row"><th class="name-col"></th><th></th>';
   colunas.forEach(col=>{
     const fields = INDIC_FIELD_DEFS[col.tipoBloco] || INDIC_FIELD_DEFS.padrao;
-    catRow += '<th colspan="'+fields.length+'" title="'+(col.categoriaDescricao||'').replace(/"/g,'&quot;')+'">'+prettyLabel(col.displayLabel)+'</th>';
+    // No HEISHOP, o bloco 1 ("rgb mainstream") tem o mesmo nome de categoria
+    // que a aba Volume — mostra a descrição longa da própria planilha ("HEISHOP")
+    // do lado pra ficar claro que é o indicador de rgb mainstream DENTRO do
+    // canal HEISHOP, não um vazamento de dado da aba Volume.
+    const desc = (showCatDescricao && col.categoriaDescricao && col.categoriaDescricao !== col.categoria)
+      ? ' <span style="opacity:.65;font-weight:400;">('+col.categoriaDescricao+')</span>' : '';
+    catRow += '<th colspan="'+fields.length+'" title="'+(col.categoriaDescricao||'').replace(/"/g,'&quot;')+'">'+prettyLabel(col.displayLabel)+desc+'</th>';
     fields.forEach((f,fi)=>{ fieldRow += '<th'+(fi===0?' class="group-start"':'')+'>'+f.label+'</th>'; });
   });
   catRow += '</tr>'; fieldRow += '</tr>';
@@ -1722,6 +1730,37 @@ function buildIndicadoresTable(supName, vendedores, colunas){
 
 function selectIndicadoresTab(tab){ INDICADORES_SUBTAB = tab; render(); }
 function selectIndicadoresDate(date){ INDICADORES_DATE = date; render(); }
+function selectIndicadoresSup(sup){ INDICADORES_SUP_FILTER = sup; render(); }
+function toggleIndicadoresCat(subtab, ordemBloco){
+  if(!INDICADORES_CAT_HIDDEN[subtab]) INDICADORES_CAT_HIDDEN[subtab] = new Set();
+  const set = INDICADORES_CAT_HIDDEN[subtab];
+  if(set.has(ordemBloco)) set.delete(ordemBloco); else set.add(ordemBloco);
+  render();
+}
+function resetIndicadoresCat(subtab){ INDICADORES_CAT_HIDDEN[subtab] = new Set(); render(); }
+
+// Filtro de CATEGORIA — fica ACIMA do filtro de supervisor na tela (pedido
+// explícito: categoria primeiro, supervisor/vendedor depois).
+function buildIndicCategoryFilter(subtab, colunas){
+  const hidden = INDICADORES_CAT_HIDDEN[subtab] || new Set();
+  const allVisible = hidden.size === 0;
+  let chips = '<button class="cat-chip '+(allVisible?'active':'')+'" onclick="resetIndicadoresCat(\''+subtab+'\')">Todas categorias</button>';
+  colunas.forEach(col=>{
+    const active = !hidden.has(col.ordemBloco);
+    chips += '<button class="cat-chip '+(active?'active':'')+'" onclick="toggleIndicadoresCat(\''+subtab+'\','+col.ordemBloco+')">'+prettyLabel(col.displayLabel)+'</button>';
+  });
+  return '<div class="cat-filter" style="margin-bottom:10px;">'+chips+'</div>';
+}
+
+// Filtro de SUPERVISOR — clicar num supervisor mostra só o time dele.
+function buildIndicSupervisorFilter(supNames){
+  let chips = '<button class="cat-chip '+(!INDICADORES_SUP_FILTER?'active':'')+'" onclick="selectIndicadoresSup(null)">Todos os supervisores</button>';
+  supNames.forEach(sup=>{
+    const active = INDICADORES_SUP_FILTER === sup;
+    chips += '<button class="cat-chip '+(active?'active':'')+'" onclick="selectIndicadoresSup(\''+sup.replace(/'/g,"\\'")+'\')">'+sup+'</button>';
+  });
+  return '<div class="cat-filter" style="margin-bottom:16px;">'+chips+'</div>';
+}
 
 function renderIndicadoresPage(){
   if(!INDICADORES_DATA){
@@ -1759,14 +1798,31 @@ function renderIndicadoresPage(){
   }
 
   const { supMap, colunas } = groupIndicadoresRows(rowsForDate);
+  const supNames = [...supMap.keys()].sort();
+
+  // categoria acima, supervisor abaixo — nessa ordem, como pedido
+  html += buildIndicCategoryFilter(activeKey, colunas);
+  html += buildIndicSupervisorFilter(supNames);
+
+  const hiddenCats = INDICADORES_CAT_HIDDEN[activeKey] || new Set();
+  let visibleColunas = colunas.filter(c => !hiddenCats.has(c.ordemBloco));
+  if(!visibleColunas.length) visibleColunas = colunas;
+
+  const showDesc = activeKey === 'heishop';
+  const supsToShow = (INDICADORES_SUP_FILTER && supMap.has(INDICADORES_SUP_FILTER))
+    ? [INDICADORES_SUP_FILTER] : supNames;
+
   const term = SEARCH_TERM.trim().toLowerCase();
-  [...supMap.keys()].sort().forEach(supName=>{
+  let anyRendered = false;
+  supsToShow.forEach(supName=>{
     let vendedores = [...supMap.get(supName).values()];
     if(term) vendedores = vendedores.filter(v=>v.vendedor.toLowerCase().includes(term));
     if(!vendedores.length) return;
     vendedores.sort((a,b)=>a.vendedor.localeCompare(b.vendedor));
-    html += buildIndicadoresTable(supName, vendedores, colunas);
+    html += buildIndicadoresTable(supName, vendedores, visibleColunas, showDesc);
+    anyRendered = true;
   });
+  if(!anyRendered) html += '<div class="sup-sub">Nenhum vendedor encontrado.</div>';
 
   return html;
 }
@@ -1787,15 +1843,10 @@ function renderSidebar(){
   const fixed = document.getElementById('sup-list-fixed');
   const list = document.getElementById('sup-list');
 
-  const ovActive = ACTIVE_SUP === 'OVERVIEW' ? 'active' : '';
   const cmActive = ACTIVE_SUP === 'COMMITMENTS' ? 'active' : '';
   const inActive = ACTIVE_SUP === 'INCENTIVO' ? 'active' : '';
   const idActive = ACTIVE_SUP === 'INDICADORES' ? 'active' : '';
-  fixed.innerHTML = `<button class="sup-btn ${ovActive}" onclick="selectSupervisor('OVERVIEW')">
-      <span class="sup-avatar">▦</span>
-      <span>Visão geral</span>
-    </button>
-    <button class="sup-btn ${cmActive}" onclick="selectSupervisor('COMMITMENTS')">
+  fixed.innerHTML = `<button class="sup-btn ${cmActive}" onclick="selectSupervisor('COMMITMENTS')">
       <span class="sup-avatar">☑</span>
       <span>Necessidade do Dia</span>
     </button>
@@ -1873,154 +1924,6 @@ function kpiClass(pct){
   if(pct*100 >= 90) return 'kpi-good';
   if(pct*100 >= 60) return 'kpi-warn';
   return 'kpi-bad';
-}
-
-function sectionSums(sec){
-  let meta = 0, real = 0;
-  const totalRow = sec && sec.aggregate && sec.aggregate[0];
-  if(totalRow){
-    totalRow.metrics.forEach(m=>{
-      if(typeof m.values.Meta === 'number') meta += m.values.Meta;
-      if(typeof m.values.Real === 'number') real += m.values.Real;
-    });
-  }
-  return { meta, real };
-}
-
-function getSupCategoryValues(sup, catLabel, aggIndex){
-  for(const sec of sup.sections){
-    if(sec.categories.some(c => c.label === catLabel)){
-      const row = sec.aggregate[aggIndex];
-      if(row){
-        const m = row.metrics.find(mm => mm.label === catLabel);
-        if(m) return { meta: m.values.Meta, real: m.values.Real };
-      }
-    }
-  }
-  return null;
-}
-
-function renderOverview(){
-  const diasFaltantes = DATA.meta.diasFaltantes;
-  const groupsMap = DATA.meta.supervisorGroups || {};
-
-  // lista de todas as categorias que aparecem em qualquer supervisor, na ordem em que aparecem
-  const allCatLabels = [];
-  DATA.supervisors.forEach(s => s.sections.forEach(sec => sec.categories.forEach(c=>{
-    if(!allCatLabels.includes(c.label)) allCatLabels.push(c.label);
-  })));
-
-  const OV_KEY = catKey('OVERVIEW', 0);
-  const hidden = VISIBLE_CATS[OV_KEY] || new Set();
-  let visibleCatLabels = allCatLabels.filter(c => !hidden.has(c));
-  if(visibleCatLabels.length === 0) visibleCatLabels = allCatLabels;
-
-  const filterHtml = allCatLabels.length > 1
-    ? buildCategoryFilter('OVERVIEW', 0, allCatLabels.map(label=>({label})))
-    : '';
-
-  // cabeçalho (2 níveis)
-  let catRow = '<tr class="cat-row"><th class="name-col" style="min-width:150px;">Supervisor</th><th style="min-width:70px;">Vendedores</th>';
-  let fieldRow = '<tr class="field-row"><th class="name-col"></th><th></th>';
-  visibleCatLabels.forEach(label=>{
-    catRow += '<th colspan="4">'+prettyLabel(label)+'</th>';
-    ['Meta','Real','%','Necessidade Dia'].forEach((f,fi)=>{
-      fieldRow += '<th'+(fi===0?' class="group-start"':'')+'>'+f+'</th>';
-    });
-  });
-  catRow += '</tr>'; fieldRow += '</tr>';
-
-  function renderRow(label, vendorCount, getSums, cls, onclick){
-    let cells = `<td class="name-col">${label}</td><td class="num">${vendorCount!=null?vendorCount:'—'}</td>`;
-    visibleCatLabels.forEach(catLabel=>{
-      const sums = getSums(catLabel);
-      if(!sums){ cells += '<td class="num group-start">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td>'; return; }
-      const cell = computeCell(sums.meta, sums.real, diasFaltantes);
-      ['Meta','Real','%','Necessidade Dia'].forEach((f,fi)=>{
-        cells += renderMetricCell(f, cell[f], fi===0);
-      });
-    });
-    const onclickAttr = onclick ? ' onclick="'+onclick+'"' : '';
-    return `<tr class="${cls||''}"${onclickAttr}>${cells}</tr>`;
-  }
-
-  let body = DATA.supervisors.map(s=>{
-    const vendorCount = s.sections[0] ? s.sections[0].vendors.length : 0;
-    return renderRow(
-      s.name, vendorCount,
-      (catLabel) => getSupCategoryValues(s, catLabel, 0),
-      'ov-row', "selectSupervisor('"+s.sheetName.replace(/'/g,"\\'")+"')"
-    );
-  }).join('');
-
-  // total geral (todos os supervisores) — usa o total já calculado da empresa por categoria
-  const totalRow = renderRow(
-    'TOTAL GERAL', DATA.supervisors.reduce((n,s)=> n + (s.sections[0]?s.sections[0].vendors.length:0), 0),
-    (catLabel) => {
-      for(const s of DATA.supervisors){
-        const v = getSupCategoryValues(s, catLabel, 1); // índice 1 = total da empresa (igual em todos)
-        if(v) return v;
-      }
-      return null;
-    },
-    'agg-total'
-  );
-
-  // uma linha por grupo (ex: "Mercado Frio"), se a planilha tiver a coluna Grupo/Canal
-  const allGroupNames = [...new Set(Object.values(groupsMap).flat())];
-  const hasRevendaGroup = allGroupNames.some(g => g.trim().toLowerCase() === 'revenda');
-
-  // "Revenda" sempre equivale ao total geral (todo mundo). Se a planilha estiver
-  // usando a coluna Grupo mas não marcou "Revenda" em lugar nenhum, mostramos essa
-  // linha automaticamente — assim só precisa marcar o grupo menor (ex: Mercado Frio).
-  const revendaAliasRow = (allGroupNames.length > 0 && !hasRevendaGroup)
-    ? renderRow(
-        'REVENDA', DATA.supervisors.reduce((n,s)=> n + (s.sections[0]?s.sections[0].vendors.length:0), 0),
-        (catLabel) => {
-          for(const s of DATA.supervisors){
-            const v = getSupCategoryValues(s, catLabel, 1);
-            if(v) return v;
-          }
-          return null;
-        },
-        'agg-company'
-      )
-    : '';
-
-  const groupRows = allGroupNames.map(groupName=>{
-    const supsInGroup = DATA.supervisors.filter(s => (groupsMap[s.sheetName]||[]).includes(groupName));
-    return renderRow(
-      groupName.toUpperCase(), supsInGroup.reduce((n,s)=> n + (s.sections[0]?s.sections[0].vendors.length:0), 0),
-      (catLabel) => {
-        let meta=0, real=0, found=false;
-        supsInGroup.forEach(s=>{
-          const v = getSupCategoryValues(s, catLabel, 0);
-          if(v){ meta+=v.meta; real+=v.real; found=true; }
-        });
-        return found ? { meta, real } : null;
-      },
-      'agg-company'
-    );
-  }).join('');
-
-  return `
-    <div class="sup-header"><h2>Visão geral</h2><span class="tag">${DATA.supervisors.length} supervisores</span></div>
-    <div class="sup-sub">Meta, realizado, % e necessidade dia por supervisor, categoria a categoria. Clique numa linha para abrir o detalhe.</div>
-    <div class="legend">
-      <span><span class="dot" style="background:var(--good)"></span>≥ 90% da meta</span>
-      <span><span class="dot" style="background:var(--warn)"></span>60–90% da meta</span>
-      <span><span class="dot" style="background:var(--bad)"></span>&lt; 60% da meta</span>
-    </div>
-    <div class="section-card">
-      ${filterHtml}
-      <div class="table-scroll">
-        <table class="data">
-          <thead>${catRow}${fieldRow}</thead>
-          <tbody>${body}${totalRow}${revendaAliasRow}${groupRows}</tbody>
-        </table>
-      </div>
-    </div>
-  `;
 }
 
 function renderSupervisor(sup){
@@ -2130,11 +2033,6 @@ function render(){
   empty.style.display = 'none';
   view.style.display = 'block';
 
-  if(ACTIVE_SUP === 'OVERVIEW'){
-    view.innerHTML = renderOverview();
-    noMatch.style.display = 'none';
-    return;
-  }
   if(ACTIVE_SUP === 'COMMITMENTS'){
     view.innerHTML = renderCommitmentsPage();
     noMatch.style.display = 'none';
