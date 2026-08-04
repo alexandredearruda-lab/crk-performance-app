@@ -1822,15 +1822,15 @@ function renderDeltaCell(valorAtual, valorAnterior){
 // do bloco (Real, ou o equivalente pra HEISHOP) + a variação: menos poluído
 // e é o que interessa numa comparação (crescer ou não), não o quanto falta
 // pra meta de um mês específico.
-function buildIndicTableHeader(firstColLabel, colunas, isHeishopTab, comparacaoLabel){
+function buildIndicTableHeader(firstColLabel, colunas, isHeishopTab, comparacaoLabel, mesAtualLabel){
   let catRow = '<tr class="cat-row"><th class="name-col" style="min-width:170px;">'+firstColLabel+'</th><th style="min-width:50px;">PDVs</th>';
   let fieldRow = '<tr class="field-row"><th class="name-col"></th><th></th>';
   colunas.forEach(col=>{
     const label = (isHeishopTab && col.categoria === 'rgb mainstream') ? 'Heishop' : col.displayLabel;
     if(comparacaoLabel){
       const valorLabel = VALOR_LABEL_BY_TIPO[col.tipoBloco] || 'Real';
-      catRow += '<th colspan="2" title="'+(col.categoriaDescricao||'').replace(/"/g,'&quot;')+'">'+prettyLabel(label)+'</th>';
-      fieldRow += '<th class="group-start">'+valorLabel+'</th><th class="delta-col">Δ vs '+comparacaoLabel+'</th>';
+      catRow += '<th colspan="3" title="'+(col.categoriaDescricao||'').replace(/"/g,'&quot;')+'">'+prettyLabel(label)+'</th>';
+      fieldRow += '<th class="group-start">'+valorLabel+' '+mesAtualLabel+'</th><th>'+valorLabel+' '+comparacaoLabel+'</th><th class="delta-col">Δ%</th>';
     } else {
       const fields = INDIC_FIELD_DEFS[col.tipoBloco] || INDIC_FIELD_DEFS.padrao;
       catRow += '<th colspan="'+fields.length+'" title="'+(col.categoriaDescricao||'').replace(/"/g,'&quot;')+'">'+prettyLabel(label)+'</th>';
@@ -1841,8 +1841,9 @@ function buildIndicTableHeader(firstColLabel, colunas, isHeishopTab, comparacaoL
   return catRow + fieldRow;
 }
 
-// Células de UM vendedor. Em modo comparação: só valor principal + delta.
-// Sem comparação: os 4 campos normais (Meta/Real/%/Necessidade Dia), como sempre.
+// Células de UM vendedor. Em modo comparação: valor do mês atual, valor do
+// mês de comparação, e a variação % entre os dois. Sem comparação: os 4
+// campos normais (Meta/Real/%/Necessidade Dia), como sempre.
 function renderVendorRowCells(v, compVendEntry, colunas, comparacaoLabel){
   let html = '';
   colunas.forEach(col=>{
@@ -1850,9 +1851,11 @@ function renderVendorRowCells(v, compVendEntry, colunas, comparacaoLabel){
     if(comparacaoLabel){
       const field = DELTA_FIELD_BY_TIPO[col.tipoBloco] || 'real';
       const valorAtual = row ? row[field] : null;
-      html += renderIndicCell('num', valorAtual);
       const compRow = compVendEntry ? compVendEntry.cells.get(col.ordemBloco) : null;
-      html += renderDeltaCell(valorAtual, compRow ? compRow[field] : null);
+      const valorAnterior = compRow ? compRow[field] : null;
+      html += renderIndicCell('num', valorAtual);
+      html += renderIndicCell('num', valorAnterior);
+      html += renderDeltaCell(valorAtual, valorAnterior);
     } else {
       const fields = INDIC_FIELD_DEFS[col.tipoBloco] || INDIC_FIELD_DEFS.padrao;
       fields.forEach(f=>{ html += renderIndicCell(f.kind, row ? row[f.key] : null); });
@@ -1862,7 +1865,8 @@ function renderVendorRowCells(v, compVendEntry, colunas, comparacaoLabel){
 }
 
 // Células de uma linha agregada (total de um supervisor, ou TOTAL REVENDA).
-// Mesma lógica: em comparação, só soma do valor principal + delta agregado.
+// Mesma lógica: em comparação, soma do mês atual, soma do mês de comparação,
+// e a variação % entre as duas somas.
 function renderAggregateRowCells(vendedores, compVendedores, colunas, comparacaoLabel){
   const somas = somarColunas(vendedores, colunas);
   const somasComp = comparacaoLabel ? somarColunas(compVendedores || [], colunas) : null;
@@ -1872,9 +1876,11 @@ function renderAggregateRowCells(vendedores, compVendedores, colunas, comparacao
     if(comparacaoLabel){
       const field = DELTA_FIELD_BY_TIPO[col.tipoBloco] || 'real';
       const valorAtual = s ? s[field] : null;
-      html += renderIndicCell('num', valorAtual);
       const sComp = somasComp.get(col.ordemBloco);
-      html += renderDeltaCell(valorAtual, sComp ? sComp[field] : null);
+      const valorAnterior = sComp ? sComp[field] : null;
+      html += renderIndicCell('num', valorAtual);
+      html += renderIndicCell('num', valorAnterior);
+      html += renderDeltaCell(valorAtual, valorAnterior);
     } else {
       const fields = INDIC_FIELD_DEFS[col.tipoBloco] || INDIC_FIELD_DEFS.padrao;
       fields.forEach(f=>{
@@ -1891,8 +1897,8 @@ function renderAggregateRowCells(vendedores, compVendedores, colunas, comparacao
 // mostra TODOS os supervisores e o total da empresa inteira, independente do
 // filtro de supervisor (que só afeta as tabelas de detalhe abaixo); o
 // supervisor filtrado, se houver, fica destacado com uma borda.
-function buildIndicSummaryTable(supMap, colunas, isHeishopTab, compSupMap, comparacaoLabel){
-  const header = buildIndicTableHeader('Supervisor', colunas, isHeishopTab, comparacaoLabel);
+function buildIndicSummaryTable(supMap, colunas, isHeishopTab, compSupMap, comparacaoLabel, mesAtualLabel){
+  const header = buildIndicTableHeader('Supervisor', colunas, isHeishopTab, comparacaoLabel, mesAtualLabel);
 
   const supNames = [...supMap.keys()].sort();
   let rows = '';
@@ -1927,8 +1933,8 @@ function buildIndicSummaryTable(supMap, colunas, isHeishopTab, compSupMap, compa
   </div>`;
 }
 
-function buildIndicadoresTable(supName, vendedores, colunas, isHeishopTab, compSupMap, comparacaoLabel){
-  const header = buildIndicTableHeader('Vendedor', colunas, isHeishopTab, comparacaoLabel);
+function buildIndicadoresTable(supName, vendedores, colunas, isHeishopTab, compSupMap, comparacaoLabel, mesAtualLabel){
+  const header = buildIndicTableHeader('Vendedor', colunas, isHeishopTab, comparacaoLabel, mesAtualLabel);
   const compVendMap = compSupMap ? compSupMap.get(supName) : null;
 
   let rows = '';
@@ -2165,7 +2171,7 @@ function renderIndicadoresPage(){
   const selectedCats = INDICADORES_CAT_SELECTED[activeKey] || new Set();
   const visibleColunas = selectedCats.size === 0 ? colunas : colunas.filter(c => selectedCats.has(c.ordemBloco));
 
-  html += buildIndicSummaryTable(supMap, visibleColunas, isHeishopTab, compSupMap, comparacaoLabel);
+  html += buildIndicSummaryTable(supMap, visibleColunas, isHeishopTab, compSupMap, comparacaoLabel, fmtMesAno(INDICADORES_DATE));
 
   const supsToShow = (INDICADORES_SUP_FILTER && supMap.has(INDICADORES_SUP_FILTER))
     ? [INDICADORES_SUP_FILTER] : supNames;
@@ -2179,7 +2185,7 @@ function renderIndicadoresPage(){
     let vendedores = [...supMap.get(supName).values()];
     if(term) vendedores = vendedores.filter(v=>v.vendedor.toLowerCase().includes(term));
     if(!vendedores.length) return;
-    html += buildIndicadoresTable(supName, vendedores, visibleColunas, isHeishopTab, compSupMap, comparacaoLabel);
+    html += buildIndicadoresTable(supName, vendedores, visibleColunas, isHeishopTab, compSupMap, comparacaoLabel, fmtMesAno(INDICADORES_DATE));
     anyRendered = true;
   });
   if(!anyRendered) html += '<div class="sup-sub">Nenhum vendedor encontrado.</div>';
