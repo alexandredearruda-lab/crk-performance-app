@@ -477,7 +477,9 @@ let INDICADORES_DATA = null;   // { volume:[...], cobertura:[...], heishop:[...]
 let INDICADORES_DATE = null;   // data_referencia selecionada
 let INDICADORES_SUBTAB = 'volume'; // 'volume' | 'cobertura' | 'heishop'
 let INDICADORES_SUP_FILTER = null; // null = todos os supervisores, ou o nome de um só
-const INDICADORES_CAT_HIDDEN = {}; // { volume: Set(ordemBloco), cobertura: Set(...), heishop: Set(...) }
+// { volume: Set(ordemBloco), cobertura: Set(...), heishop: Set(...) } — vazio = mostra
+// todas as categorias; não-vazio = mostra SÓ as categorias selecionadas (multi-seleção).
+const INDICADORES_CAT_SELECTED = {};
 
 function colLetterToNum(ws, r, c){
   const addr = XLSX.utils.encode_cell({r:r-1, c:c-1});
@@ -1650,18 +1652,16 @@ function groupIndicadoresRows(rows){
   return { supMap, colunas };
 }
 
-function buildIndicadoresTable(supName, vendedores, colunas, showCatDescricao){
+function buildIndicadoresTable(supName, vendedores, colunas, isHeishopTab){
   let catRow = '<tr class="cat-row"><th class="name-col" style="min-width:170px;">Vendedor</th><th style="min-width:50px;">PDVs</th>';
   let fieldRow = '<tr class="field-row"><th class="name-col"></th><th></th>';
   colunas.forEach(col=>{
     const fields = INDIC_FIELD_DEFS[col.tipoBloco] || INDIC_FIELD_DEFS.padrao;
-    // No HEISHOP, o bloco 1 ("rgb mainstream") tem o mesmo nome de categoria
-    // que a aba Volume — mostra a descrição longa da própria planilha ("HEISHOP")
-    // do lado pra ficar claro que é o indicador de rgb mainstream DENTRO do
-    // canal HEISHOP, não um vazamento de dado da aba Volume.
-    const desc = (showCatDescricao && col.categoriaDescricao && col.categoriaDescricao !== col.categoria)
-      ? ' <span style="opacity:.65;font-weight:400;">('+col.categoriaDescricao+')</span>' : '';
-    catRow += '<th colspan="'+fields.length+'" title="'+(col.categoriaDescricao||'').replace(/"/g,'&quot;')+'">'+prettyLabel(col.displayLabel)+desc+'</th>';
+    // No HEISHOP, o bloco 1 é gravado no banco com categoria "rgb mainstream"
+    // (nome herdado do mesmo bloco em Volume/Coberturas — a chave interna não
+    // muda, só a exibição): mostra "Heishop" aqui pra não parecer dado de Volume.
+    const label = (isHeishopTab && col.categoria === 'rgb mainstream') ? 'Heishop' : col.displayLabel;
+    catRow += '<th colspan="'+fields.length+'" title="'+(col.categoriaDescricao||'').replace(/"/g,'&quot;')+'">'+prettyLabel(label)+'</th>';
     fields.forEach((f,fi)=>{ fieldRow += '<th'+(fi===0?' class="group-start"':'')+'>'+f.label+'</th>'; });
   });
   catRow += '</tr>'; fieldRow += '</tr>';
@@ -1724,23 +1724,26 @@ function buildIndicadoresTable(supName, vendedores, colunas, showCatDescricao){
 function selectIndicadoresTab(tab){ INDICADORES_SUBTAB = tab; render(); }
 function selectIndicadoresDate(date){ INDICADORES_DATE = date; render(); }
 function selectIndicadoresSup(sup){ INDICADORES_SUP_FILTER = sup; render(); }
+// Clicar numa categoria ADICIONA ela à seleção (multi-seleção). Com a seleção
+// vazia, mostra tudo; com 1+ selecionadas, mostra só essas.
 function toggleIndicadoresCat(subtab, ordemBloco){
-  if(!INDICADORES_CAT_HIDDEN[subtab]) INDICADORES_CAT_HIDDEN[subtab] = new Set();
-  const set = INDICADORES_CAT_HIDDEN[subtab];
+  if(!INDICADORES_CAT_SELECTED[subtab]) INDICADORES_CAT_SELECTED[subtab] = new Set();
+  const set = INDICADORES_CAT_SELECTED[subtab];
   if(set.has(ordemBloco)) set.delete(ordemBloco); else set.add(ordemBloco);
   render();
 }
-function resetIndicadoresCat(subtab){ INDICADORES_CAT_HIDDEN[subtab] = new Set(); render(); }
+function resetIndicadoresCat(subtab){ INDICADORES_CAT_SELECTED[subtab] = new Set(); render(); }
 
 // Filtro de CATEGORIA — fica ACIMA do filtro de supervisor na tela (pedido
 // explícito: categoria primeiro, supervisor/vendedor depois).
-function buildIndicCategoryFilter(subtab, colunas){
-  const hidden = INDICADORES_CAT_HIDDEN[subtab] || new Set();
-  const allVisible = hidden.size === 0;
-  let chips = '<button class="cat-chip '+(allVisible?'active':'')+'" onclick="resetIndicadoresCat(\''+subtab+'\')">Todas categorias</button>';
+function buildIndicCategoryFilter(subtab, colunas, isHeishopTab){
+  const selected = INDICADORES_CAT_SELECTED[subtab] || new Set();
+  const noneSelected = selected.size === 0;
+  let chips = '<button class="cat-chip '+(noneSelected?'active':'')+'" onclick="resetIndicadoresCat(\''+subtab+'\')">Todas categorias</button>';
   colunas.forEach(col=>{
-    const active = !hidden.has(col.ordemBloco);
-    chips += '<button class="cat-chip '+(active?'active':'')+'" onclick="toggleIndicadoresCat(\''+subtab+'\','+col.ordemBloco+')">'+prettyLabel(col.displayLabel)+'</button>';
+    const active = selected.has(col.ordemBloco);
+    const label = (isHeishopTab && col.categoria === 'rgb mainstream') ? 'Heishop' : col.displayLabel;
+    chips += '<button class="cat-chip '+(active?'active':'')+'" onclick="toggleIndicadoresCat(\''+subtab+'\','+col.ordemBloco+')">'+prettyLabel(label)+'</button>';
   });
   return '<div class="cat-filter" style="margin-bottom:10px;">'+chips+'</div>';
 }
@@ -1792,27 +1795,29 @@ function renderIndicadoresPage(){
 
   const { supMap, colunas } = groupIndicadoresRows(rowsForDate);
   const supNames = [...supMap.keys()].sort();
+  const isHeishopTab = activeKey === 'heishop';
 
   // categoria acima, supervisor abaixo — nessa ordem, como pedido
-  html += buildIndicCategoryFilter(activeKey, colunas);
+  html += buildIndicCategoryFilter(activeKey, colunas, isHeishopTab);
   html += buildIndicSupervisorFilter(supNames);
 
-  const hiddenCats = INDICADORES_CAT_HIDDEN[activeKey] || new Set();
-  let visibleColunas = colunas.filter(c => !hiddenCats.has(c.ordemBloco));
-  if(!visibleColunas.length) visibleColunas = colunas;
+  // seleção vazia = mostra todas as categorias; com 1+ selecionadas, mostra só essas
+  const selectedCats = INDICADORES_CAT_SELECTED[activeKey] || new Set();
+  const visibleColunas = selectedCats.size === 0 ? colunas : colunas.filter(c => selectedCats.has(c.ordemBloco));
 
-  const showDesc = activeKey === 'heishop';
   const supsToShow = (INDICADORES_SUP_FILTER && supMap.has(INDICADORES_SUP_FILTER))
     ? [INDICADORES_SUP_FILTER] : supNames;
 
+  // vendedores ficam na ordem em que vieram do banco (groupIndicadoresRows
+  // preserva a ordem de chegada das linhas), que é a ordem da planilha —
+  // não reordenar por nome aqui.
   const term = SEARCH_TERM.trim().toLowerCase();
   let anyRendered = false;
   supsToShow.forEach(supName=>{
     let vendedores = [...supMap.get(supName).values()];
     if(term) vendedores = vendedores.filter(v=>v.vendedor.toLowerCase().includes(term));
     if(!vendedores.length) return;
-    vendedores.sort((a,b)=>a.vendedor.localeCompare(b.vendedor));
-    html += buildIndicadoresTable(supName, vendedores, visibleColunas, showDesc);
+    html += buildIndicadoresTable(supName, vendedores, visibleColunas, isHeishopTab);
     anyRendered = true;
   });
   if(!anyRendered) html += '<div class="sup-sub">Nenhum vendedor encontrado.</div>';
@@ -1853,20 +1858,11 @@ function renderSidebar(){
     </button>
     <div style="border-bottom:1px solid rgba(233,223,205,0.12); margin:8px 2px 4px;"></div>`;
 
-  // a lista de supervisores (do vendor_snapshots) some se não houver upload
-  // manual feito, mas os botões fixos acima (incl. Indicadores) continuam.
-  if(!DATA){ list.innerHTML=''; return; }
-
-  list.innerHTML = DATA.supervisors.map(s=>{
-    const initials = s.name.slice(0,2).toUpperCase();
-    const vendorCount = s.sections[0] ? s.sections[0].vendors.length : 0;
-    const active = s.sheetName === ACTIVE_SUP ? 'active' : '';
-    return `<button class="sup-btn ${active}" onclick="selectSupervisor('${s.sheetName.replace(/'/g,"\\'")}')">
-      <span class="sup-avatar">${initials}</span>
-      <span>${s.name}</span>
-      <span class="sup-count">${vendorCount}</span>
-    </button>`;
-  }).join('');
+  // A lista de supervisores por vendor_snapshots (upload manual antigo) foi
+  // removida daqui de propósito — filtrava uma tela separada e desatualizada.
+  // O filtro de supervisor "de verdade" agora vive dentro da aba Indicadores
+  // (buildIndicSupervisorFilter), filtrando Volume+Cobertura+Heishop juntos.
+  list.innerHTML = '';
 }
 
 function renderTopMeta(){

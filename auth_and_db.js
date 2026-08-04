@@ -144,10 +144,14 @@ async function loadDataFromDB(){
   // Indicadores (volume/cobertura/heishop) são independentes do resto — buscados
   // à parte, sem bloquear nem ser bloqueados pelo fluxo de vendor_snapshots.
   try{
+    // ordena por id: o script de import grava as linhas na mesma ordem em que
+    // lê a planilha (vendedor a vendedor, de cima pra baixo), então id ASC
+    // reproduz a ordem original da planilha — não reordenar por nome na tela.
+    const orderById = q => q.order('id', { ascending: true });
     const [volRows, covRows, heiRows] = await Promise.all([
-      fetchAllRows('volume_indicadores'),
-      fetchAllRows('cobertura_indicadores'),
-      fetchAllRows('heishop_indicadores'),
+      fetchAllRows('volume_indicadores', orderById),
+      fetchAllRows('cobertura_indicadores', orderById),
+      fetchAllRows('heishop_indicadores', orderById),
     ]);
     const datasDisponiveis = [...new Set([...volRows, ...covRows, ...heiRows].map(r => r.data_referencia))].sort().reverse();
     INDICADORES_DATA = { volume: volRows, cobertura: covRows, heishop: heiRows, datasDisponiveis };
