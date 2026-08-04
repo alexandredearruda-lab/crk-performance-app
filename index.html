@@ -1213,6 +1213,7 @@ function toggleNecessidadeCategoria(categoria){
   else NECESSIDADE_CATEGORIAS_SELECIONADAS.add(categoria);
   render();
 }
+function resetNecessidadeCategoria(){ NECESSIDADE_CATEGORIAS_SELECIONADAS.clear(); render(); }
 
 function encerrarCanalNecessidade(){
   if(typeof NECESSIDADE_REALTIME_CHANNEL !== 'undefined' && NECESSIDADE_REALTIME_CHANNEL){
@@ -1506,10 +1507,12 @@ function renderCommitmentsPage(){
   const categoriasDisponiveis = categoriasComunsVolumeCobertura();
   const categoriasSelecionadas = categoriasDisponiveis.filter(c => NECESSIDADE_CATEGORIAS_SELECIONADAS.has(c));
   if(categoriasDisponiveis.length){
-    const catChips = categoriasDisponiveis.map(c =>
+    const noneActive = NECESSIDADE_CATEGORIAS_SELECIONADAS.size === 0 ? 'active' : '';
+    let catChips = `<button class="cat-chip ${noneActive}" onclick="resetNecessidadeCategoria()">Nenhuma</button>`;
+    catChips += categoriasDisponiveis.map(c =>
       `<button class="cat-chip ${NECESSIDADE_CATEGORIAS_SELECIONADAS.has(c)?'active':''}" onclick="toggleNecessidadeCategoria('${c.replace(/'/g,"\\'")}')">${prettyLabel(c)}</button>`
     ).join('');
-    html += `<div class="sup-sub" style="margin-top:0;">Categoria do desafio (vale pro dia inteiro — pode marcar mais de uma):</div>
+    html += `<div class="sup-sub" style="margin-top:0;">Categoria do desafio (vale pro dia inteiro — pode marcar mais de uma; "Nenhuma" volta pro Desafio/Real genérico):</div>
       <div class="cat-filter" style="margin-bottom:16px;">${catChips}</div>`;
   }
 
@@ -1787,6 +1790,7 @@ function somarColunas(vendedores, colunas){
 // comparar mês a mês (não dá pra comparar Meta/Real com Fat.Total/Fat.HEISHOP
 // no mesmo eixo — cada tipo tem seu próprio campo de referência).
 const DELTA_FIELD_BY_TIPO = { padrao: 'real', faturamento_pedido: 'fat_heishop', devolucao: 'dev_faturamento' };
+const VALOR_LABEL_BY_TIPO = { padrao: 'Real', faturamento_pedido: 'Fat. HEISHOP', devolucao: 'Dev. Faturamento' };
 
 function renderDeltaCell(valorAtual, valorAnterior){
   if(typeof valorAtual !== 'number' || typeof valorAnterior !== 'number' || valorAnterior === 0){
@@ -1800,57 +1804,70 @@ function renderDeltaCell(valorAtual, valorAnterior){
   return '<td class="num delta-col '+cls+'">'+arrow+' '+(delta>0?'+':'-')+pct+'%</td>';
 }
 
-// Cabeçalho de 2 linhas compartilhado entre o resumo e o detalhe — com uma
-// coluna "Δ vs MM/AAAA" a mais por bloco quando há mês de comparação ativo.
+// Cabeçalho de 2 linhas compartilhado entre o resumo e o detalhe. Em modo
+// comparação, some com Meta/%/Necessidade Dia — mostra só o valor principal
+// do bloco (Real, ou o equivalente pra HEISHOP) + a variação: menos poluído
+// e é o que interessa numa comparação (crescer ou não), não o quanto falta
+// pra meta de um mês específico.
 function buildIndicTableHeader(firstColLabel, colunas, isHeishopTab, comparacaoLabel){
   let catRow = '<tr class="cat-row"><th class="name-col" style="min-width:170px;">'+firstColLabel+'</th><th style="min-width:50px;">PDVs</th>';
   let fieldRow = '<tr class="field-row"><th class="name-col"></th><th></th>';
   colunas.forEach(col=>{
-    const fields = INDIC_FIELD_DEFS[col.tipoBloco] || INDIC_FIELD_DEFS.padrao;
     const label = (isHeishopTab && col.categoria === 'rgb mainstream') ? 'Heishop' : col.displayLabel;
-    const colspan = fields.length + (comparacaoLabel ? 1 : 0);
-    catRow += '<th colspan="'+colspan+'" title="'+(col.categoriaDescricao||'').replace(/"/g,'&quot;')+'">'+prettyLabel(label)+'</th>';
-    fields.forEach((f,fi)=>{ fieldRow += '<th'+(fi===0?' class="group-start"':'')+'>'+f.label+'</th>'; });
-    if(comparacaoLabel) fieldRow += '<th class="delta-col group-start">Δ vs '+comparacaoLabel+'</th>';
+    if(comparacaoLabel){
+      const valorLabel = VALOR_LABEL_BY_TIPO[col.tipoBloco] || 'Real';
+      catRow += '<th colspan="2" title="'+(col.categoriaDescricao||'').replace(/"/g,'&quot;')+'">'+prettyLabel(label)+'</th>';
+      fieldRow += '<th class="group-start">'+valorLabel+'</th><th class="delta-col">Δ vs '+comparacaoLabel+'</th>';
+    } else {
+      const fields = INDIC_FIELD_DEFS[col.tipoBloco] || INDIC_FIELD_DEFS.padrao;
+      catRow += '<th colspan="'+fields.length+'" title="'+(col.categoriaDescricao||'').replace(/"/g,'&quot;')+'">'+prettyLabel(label)+'</th>';
+      fields.forEach((f,fi)=>{ fieldRow += '<th'+(fi===0?' class="group-start"':'')+'>'+f.label+'</th>'; });
+    }
   });
   catRow += '</tr>'; fieldRow += '</tr>';
   return catRow + fieldRow;
 }
 
-// Células de UM vendedor: valores normais + (se houver comparação) o delta
-// contra a mesma célula (mesmo ordem_bloco) do mês de comparação.
+// Células de UM vendedor. Em modo comparação: só valor principal + delta.
+// Sem comparação: os 4 campos normais (Meta/Real/%/Necessidade Dia), como sempre.
 function renderVendorRowCells(v, compVendEntry, colunas, comparacaoLabel){
   let html = '';
   colunas.forEach(col=>{
-    const fields = INDIC_FIELD_DEFS[col.tipoBloco] || INDIC_FIELD_DEFS.padrao;
     const row = v.cells.get(col.ordemBloco);
-    fields.forEach(f=>{ html += renderIndicCell(f.kind, row ? row[f.key] : null); });
     if(comparacaoLabel){
       const field = DELTA_FIELD_BY_TIPO[col.tipoBloco] || 'real';
+      const valorAtual = row ? row[field] : null;
+      html += renderIndicCell('num', valorAtual);
       const compRow = compVendEntry ? compVendEntry.cells.get(col.ordemBloco) : null;
-      html += renderDeltaCell(row ? row[field] : null, compRow ? compRow[field] : null);
+      html += renderDeltaCell(valorAtual, compRow ? compRow[field] : null);
+    } else {
+      const fields = INDIC_FIELD_DEFS[col.tipoBloco] || INDIC_FIELD_DEFS.padrao;
+      fields.forEach(f=>{ html += renderIndicCell(f.kind, row ? row[f.key] : null); });
     }
   });
   return html;
 }
 
-// Células de uma linha agregada (total de um supervisor, ou TOTAL REVENDA):
-// soma dos vendedores + delta agregado (soma atual vs soma do mês anterior).
+// Células de uma linha agregada (total de um supervisor, ou TOTAL REVENDA).
+// Mesma lógica: em comparação, só soma do valor principal + delta agregado.
 function renderAggregateRowCells(vendedores, compVendedores, colunas, comparacaoLabel){
   const somas = somarColunas(vendedores, colunas);
   const somasComp = comparacaoLabel ? somarColunas(compVendedores || [], colunas) : null;
   let html = '';
   colunas.forEach(col=>{
-    const fields = INDIC_FIELD_DEFS[col.tipoBloco] || INDIC_FIELD_DEFS.padrao;
     const s = somas.get(col.ordemBloco);
-    fields.forEach(f=>{
-      if(!s){ html += renderIndicCell(f.kind, null); return; }
-      html += renderIndicCell(f.kind, f.kind === 'pct' ? (s._pct !== undefined ? s._pct : null) : s[f.key]);
-    });
     if(comparacaoLabel){
       const field = DELTA_FIELD_BY_TIPO[col.tipoBloco] || 'real';
+      const valorAtual = s ? s[field] : null;
+      html += renderIndicCell('num', valorAtual);
       const sComp = somasComp.get(col.ordemBloco);
-      html += renderDeltaCell(s ? s[field] : null, sComp ? sComp[field] : null);
+      html += renderDeltaCell(valorAtual, sComp ? sComp[field] : null);
+    } else {
+      const fields = INDIC_FIELD_DEFS[col.tipoBloco] || INDIC_FIELD_DEFS.padrao;
+      fields.forEach(f=>{
+        if(!s){ html += renderIndicCell(f.kind, null); return; }
+        html += renderIndicCell(f.kind, f.kind === 'pct' ? (s._pct !== undefined ? s._pct : null) : s[f.key]);
+      });
     }
   });
   return html;
