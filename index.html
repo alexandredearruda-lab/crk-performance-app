@@ -1530,12 +1530,18 @@ function renderCommitmentsPage(){
       catCells += necessidadeCategoriaInput(c.id, vendedorCodigo, supervisorNome, vendedorNome, dataStr, cat, 'cobertura', 'valor_real', numOrNull(cov.valor_real), editable);
     });
 
+    // Com categoria selecionada, o par genérico Desafio/Real some — cada
+    // categoria já tem os próprios 4 campos (Vol./Cob. Desafio/Real).
+    const genericCells = categoriasSelecionadas.length ? '' : `
+      ${necessidadeInput(c.id, vendedorCodigo, supervisorNome, vendedorNome, dataStr, 'valor_desafio', desafio, editable)}
+      ${necessidadeInput(c.id, vendedorCodigo, supervisorNome, vendedorNome, dataStr, 'valor_real', real, editable)}
+    `;
+
     return `<tr>
       <td class="name-col">${c.fantasia}</td>
       <td class="col-cidade">${c.cidade || '—'}</td>
       <td class="col-canal">${c.canal || '—'}</td>
-      ${necessidadeInput(c.id, vendedorCodigo, supervisorNome, vendedorNome, dataStr, 'valor_desafio', desafio, editable)}
-      ${necessidadeInput(c.id, vendedorCodigo, supervisorNome, vendedorNome, dataStr, 'valor_real', real, editable)}
+      ${genericCells}
       ${catCells}
     </tr>`;
   }).join('');
@@ -1543,7 +1549,7 @@ function renderCommitmentsPage(){
   let thead;
   if(categoriasSelecionadas.length){
     let catRow = '<th class="name-col" rowspan="2" style="min-width:190px;">Cliente</th><th class="col-cidade" rowspan="2">Cidade</th>'
-      + '<th class="col-canal" rowspan="2">Canal</th><th rowspan="2" style="min-width:100px;">Desafio</th><th rowspan="2" style="min-width:100px;">Real</th>';
+      + '<th class="col-canal" rowspan="2">Canal</th>';
     let fieldRow = '';
     categoriasSelecionadas.forEach(cat=>{
       catRow += '<th colspan="4">'+prettyLabel(cat)+'</th>';
