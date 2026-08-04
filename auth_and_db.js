@@ -20,6 +20,7 @@ let INCENTIVOS = [];               // prêmio/incentivo (aba "Painel Ganho")
 let CLIENTES_MASTER = [];          // base de clientes importada de Base_Clientes.xlsx
 let NECESSIDADE_DIA_ROWS = [];     // linhas de necessidade_dia do vendedor+dia selecionados no momento
 let NECESSIDADE_SEMANA_ROWS = [];  // linhas de necessidade_dia da semana atual inteira (Seg-Sex), pro resumo
+let NECESSIDADE_CAT_ROWS = [];     // linhas de necessidade_dia_categoria do vendedor+dia selecionados (todas as categorias)
 function canEditNecessidade(supervisorNome, vendedorNome){
   if(CURRENT_ROLE === 'admin') return true;
   if(CURRENT_ROLE === 'supervisor') return CURRENT_SUP_SHEET === 'Fundamentos ' + supervisorNome;
@@ -303,17 +304,78 @@ async function saveNecessidadeField(clienteId, vendedorCodigo, supervisorNome, v
   }
 }
 
+/* =====================================================================
+   NECESSIDADE DO DIA POR CATEGORIA + INDICADOR (volume/cobertura) — mesmo
+   padrão de permissão e de upsert da necessidade_dia genérica acima, só que
+   com mais 2 chaves (categoria, tipo_indicador), permitindo várias linhas
+   por cliente/dia — uma por categoria x indicador selecionados na tela.
+===================================================================== */
+async function loadNecessidadeCategoriaDia(vendedorCodigo, dataStr){
+  try{
+    const { data, error } = await db.from('necessidade_dia_categoria').select('*')
+      .eq('vendedor_codigo', vendedorCodigo).eq('data', dataStr);
+    if(error) throw error;
+    NECESSIDADE_CAT_ROWS = data || [];
+  }catch(e){
+    console.error(e);
+    NECESSIDADE_CAT_ROWS = [];
+    showStatus('✗ Não foi possível carregar a necessidade por categoria: ' + (e.message || e) + '. Se a tabela ainda não existe, rode o arquivo schema_necessidade_dia_categoria.sql no Supabase.', true);
+  }
+  render();
+}
+
+async function saveNecessidadeCategoriaField(clienteId, vendedorCodigo, supervisorNome, vendedorNome, dataStr, categoria, tipoIndicador, field, valor){
+  if(!canEditNecessidade(supervisorNome, vendedorNome)) return;
+  if(field !== 'valor_desafio' && field !== 'valor_real') return;
+  const num = valor === '' ? null : Number(String(valor).replace(',', '.'));
+  if(valor !== '' && isNaN(num)) return;
+  try{
+    const payload = {
+      vendedor_codigo: vendedorCodigo,
+      cliente_id: clienteId,
+      data: dataStr,
+      categoria: categoria,
+      tipo_indicador: tipoIndicador,
+      updated_at: new Date().toISOString(),
+      updated_by: CURRENT_USER.id
+    };
+    payload[field] = num;
+    const existing = NECESSIDADE_CAT_ROWS.find(r => r.cliente_id === clienteId && r.vendedor_codigo === vendedorCodigo
+      && r.data === dataStr && r.categoria === categoria && r.tipo_indicador === tipoIndicador);
+    if(existing){
+      const other = field === 'valor_desafio' ? 'valor_real' : 'valor_desafio';
+      if(existing[other] !== null && existing[other] !== undefined) payload[other] = existing[other];
+    }
+    const { error } = await db.from('necessidade_dia_categoria').upsert(payload, { onConflict: 'vendedor_codigo,cliente_id,data,categoria,tipo_indicador' });
+    if(error) throw error;
+    if(existing) existing[field] = num;
+    else NECESSIDADE_CAT_ROWS.push({ vendedor_codigo: vendedorCodigo, cliente_id: clienteId, data: dataStr, categoria, tipo_indicador: tipoIndicador, valor_desafio: field==='valor_desafio'?num:null, valor_real: field==='valor_real'?num:null });
+    render();
+  }catch(e){
+    console.error(e);
+    showStatus('✗ Não foi possível salvar: ' + (e.message || e) + '. Se a tabela ainda não existe, rode o arquivo schema_necessidade_dia_categoria.sql no Supabase.', true);
+  }
+}
+
 let NECESSIDADE_RELOAD_TIMER = null;
 function subscribeNecessidadeRealtime(vendedorCodigo, dataStr){
   if(NECESSIDADE_REALTIME_CHANNEL){ db.removeChannel(NECESSIDADE_REALTIME_CHANNEL); NECESSIDADE_REALTIME_CHANNEL = null; }
+  const reload = () => {
+    clearTimeout(NECESSIDADE_RELOAD_TIMER);
+    NECESSIDADE_RELOAD_TIMER = setTimeout(() => {
+      loadNecessidadeDia(vendedorCodigo, dataStr);
+      loadNecessidadeCategoriaDia(vendedorCodigo, dataStr);
+    }, 900);
+  };
   NECESSIDADE_REALTIME_CHANNEL = db.channel('necessidade-dia-' + vendedorCodigo + '-' + dataStr)
     .on('postgres_changes', {
       event: '*', schema: 'public', table: 'necessidade_dia',
       filter: 'vendedor_codigo=eq.' + vendedorCodigo
-    }, () => {
-      clearTimeout(NECESSIDADE_RELOAD_TIMER);
-      NECESSIDADE_RELOAD_TIMER = setTimeout(() => loadNecessidadeDia(vendedorCodigo, dataStr), 900);
-    })
+    }, reload)
+    .on('postgres_changes', {
+      event: '*', schema: 'public', table: 'necessidade_dia_categoria',
+      filter: 'vendedor_codigo=eq.' + vendedorCodigo
+    }, reload)
     .subscribe();
 }
 
