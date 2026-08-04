@@ -155,13 +155,23 @@ async function loadDataFromDB(){
       fetchAllRows('heishop_indicadores', orderById),
     ]);
     const datasDisponiveis = [...new Set([...volRows, ...covRows, ...heiRows].map(r => r.data_referencia))].sort().reverse();
-    INDICADORES_DATA = { volume: volRows, cobertura: covRows, heishop: heiRows, datasDisponiveis };
+    INDICADORES_DATA = { volume: volRows, cobertura: covRows, heishop: heiRows, clientesSemCompra: [], datasDisponiveis };
     if(!INDICADORES_DATE || !datasDisponiveis.includes(INDICADORES_DATE)){
       INDICADORES_DATE = datasDisponiveis[0] || null;
     }
   }catch(e){
     console.error(e);
-    if(!INDICADORES_DATA) INDICADORES_DATA = { volume:[], cobertura:[], heishop:[], datasDisponiveis:[] };
+    if(!INDICADORES_DATA) INDICADORES_DATA = { volume:[], cobertura:[], heishop:[], clientesSemCompra:[], datasDisponiveis:[] };
+  }
+
+  // Clientes sem compra é opcional de propósito: se a tabela ainda não existe
+  // (schema_clientes_sem_compra.sql não rodado ainda), não pode derrubar o
+  // resto dos Indicadores — só essa aba específica fica vazia até rodar o SQL.
+  try{
+    const semCompraRows = await fetchAllRows('clientes_sem_compra', q => q.order('dias_sem_comprar', { ascending: false }));
+    if(INDICADORES_DATA) INDICADORES_DATA.clientesSemCompra = semCompraRows;
+  }catch(e){
+    console.error(e);
   }
 
   try{
@@ -248,6 +258,7 @@ function subscribeRealtime(){
     .on('postgres_changes', { event: '*', schema: 'public', table: 'volume_indicadores' }, scheduleReload)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'cobertura_indicadores' }, scheduleReload)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'heishop_indicadores' }, scheduleReload)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'clientes_sem_compra' }, scheduleReload)
     .subscribe();
 }
 

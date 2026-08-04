@@ -4,7 +4,8 @@
   "type": "commonjs",
   "scripts": {
     "import": "node import_clientes.js",
-    "import:fundamentos": "node import_fundamentos.js"
+    "import:fundamentos": "node import_fundamentos.js",
+    "import:sem-compra": "node import_clientes_sem_compra.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0",

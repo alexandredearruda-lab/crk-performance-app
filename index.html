@@ -1929,6 +1929,80 @@ function buildIndicSupervisorFilter(supNames){
   return '<div class="cat-filter" style="margin-bottom:16px;">'+chips+'</div>';
 }
 
+// "Clientes sem comprar" — lista por supervisor, ordenada por dias sem
+// comprar (pior primeiro), colorida por severidade. Reaproveita o filtro de
+// supervisor que já existe, mas não tem categoria (não se aplica aqui).
+function diasSemComprarClasse(dias){
+  if(typeof dias !== 'number') return '';
+  if(dias >= 30) return 'pct-bad';
+  if(dias >= 15) return 'pct-warn';
+  return 'pct-good';
+}
+
+function buildClientesSemCompraTable(supName, clientes){
+  const rows = clientes.map(c=>{
+    const cls = diasSemComprarClasse(c.dias_sem_comprar);
+    return `<tr>
+      <td class="name-col">${c.fantasia}</td>
+      <td>${c.razao_social || '—'}</td>
+      <td>${c.canal || '—'}</td>
+      <td>${c.municipio || '—'}</td>
+      <td class="num ${cls}">${typeof c.dias_sem_comprar === 'number' ? c.dias_sem_comprar : '—'}</td>
+    </tr>`;
+  }).join('');
+
+  return `
+  <div class="section-card">
+    <div class="section-head" onclick="toggleSection(this)">
+      <span class="chev">▾</span>
+      <h3>${supName}</h3>
+      <span class="n">${clientes.length} clientes sem comprar</span>
+    </div>
+    <div class="section-body">
+      <div class="table-scroll">
+        <table class="data">
+          <thead><tr>
+            <th class="name-col" style="min-width:190px;">Cliente</th>
+            <th style="min-width:200px;">Razão Social</th>
+            <th style="min-width:140px;">Canal</th>
+            <th style="min-width:140px;">Município</th>
+            <th style="min-width:110px;">Dias sem comprar</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderClientesSemCompraTab(rowsForDate){
+  const supMap = new Map();
+  rowsForDate.forEach(c=>{
+    const sup = c.supervisor || '(sem supervisor)';
+    if(!supMap.has(sup)) supMap.set(sup, []);
+    supMap.get(sup).push(c);
+  });
+  const supNames = [...supMap.keys()].sort();
+
+  let html = buildIndicSupervisorFilter(supNames);
+
+  const supsToShow = (INDICADORES_SUP_FILTER && supMap.has(INDICADORES_SUP_FILTER))
+    ? [INDICADORES_SUP_FILTER] : supNames;
+
+  const term = SEARCH_TERM.trim().toLowerCase();
+  let anyRendered = false;
+  supsToShow.forEach(supName=>{
+    let clientes = [...supMap.get(supName)].sort((a,b)=> (b.dias_sem_comprar||0) - (a.dias_sem_comprar||0));
+    if(term) clientes = clientes.filter(c => c.fantasia.toLowerCase().includes(term) || (c.vendedor||'').toLowerCase().includes(term));
+    if(!clientes.length) return;
+    html += buildClientesSemCompraTable(supName, clientes);
+    anyRendered = true;
+  });
+  if(!anyRendered) html += '<div class="sup-sub">Nenhum cliente encontrado.</div>';
+
+  return html;
+}
+
 function renderIndicadoresPage(){
   if(!INDICADORES_DATA){
     return '<div class="section-card"><div class="section-body" style="padding:20px;">Carregando indicadores…</div></div>';
@@ -1947,6 +2021,7 @@ function renderIndicadoresPage(){
     { key:'volume', label:'Volume', rows:volume },
     { key:'cobertura', label:'Coberturas', rows:cobertura },
     { key:'heishop', label:'HEISHOP', rows:heishop },
+    { key:'sem_compra', label:'Clientes sem comprar', rows:(INDICADORES_DATA.clientesSemCompra||[]) },
   ];
   const rowsByTab = {};
   tabDefs.forEach(t=>{ rowsByTab[t.key] = t.rows.filter(r=>r.data_referencia === INDICADORES_DATE); });
@@ -1962,6 +2037,12 @@ function renderIndicadoresPage(){
   if(!rowsForDate.length){
     html += '<div class="sup-sub">Sem dados dessa aba pra essa data.</div>';
     return html;
+  }
+
+  // "Clientes sem comprar" tem forma bem diferente das outras 3 (sem categoria,
+  // sem Meta/Real) — segue por um caminho de renderização próprio.
+  if(activeKey === 'sem_compra'){
+    return html + renderClientesSemCompraTab(rowsForDate);
   }
 
   const { supMap, colunas } = groupIndicadoresRows(rowsForDate);
