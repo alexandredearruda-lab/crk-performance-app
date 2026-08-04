@@ -141,6 +141,24 @@ async function fetchAllRows(table, queryBuilder){
    + os totais de comparação)
 ===================================================================== */
 async function loadDataFromDB(){
+  // Indicadores (volume/cobertura/heishop) são independentes do resto — buscados
+  // à parte, sem bloquear nem ser bloqueados pelo fluxo de vendor_snapshots.
+  try{
+    const [volRows, covRows, heiRows] = await Promise.all([
+      fetchAllRows('volume_indicadores'),
+      fetchAllRows('cobertura_indicadores'),
+      fetchAllRows('heishop_indicadores'),
+    ]);
+    const datasDisponiveis = [...new Set([...volRows, ...covRows, ...heiRows].map(r => r.data_referencia))].sort().reverse();
+    INDICADORES_DATA = { volume: volRows, cobertura: covRows, heishop: heiRows, datasDisponiveis };
+    if(!INDICADORES_DATE || !datasDisponiveis.includes(INDICADORES_DATE)){
+      INDICADORES_DATE = datasDisponiveis[0] || null;
+    }
+  }catch(e){
+    console.error(e);
+    if(!INDICADORES_DATA) INDICADORES_DATA = { volume:[], cobertura:[], heishop:[], datasDisponiveis:[] };
+  }
+
   try{
     const { data: metaRow } = await db.from('meta').select('*').eq('id', 1).maybeSingle();
     const { data: vsRows, error: e1 } = await db.from('vendor_snapshots').select('*');
@@ -222,6 +240,9 @@ function subscribeRealtime(){
     .on('postgres_changes', { event: '*', schema: 'public', table: 'incentivos' }, scheduleReload)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'meta' }, scheduleReload)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'clientes' }, scheduleReload)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'volume_indicadores' }, scheduleReload)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'cobertura_indicadores' }, scheduleReload)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'heishop_indicadores' }, scheduleReload)
     .subscribe();
 }
 

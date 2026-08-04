@@ -475,6 +475,15 @@ const SORT_STATE = {}; // { "sheetName:sectionIdx": 'asc'|'desc'|null }
 let SHOW_DETAIL = true;
 function sectionLabel(i){ return SECTION_LABELS[i] || ('Bloco ' + (i+1)); }
 
+/* =====================================================================
+   INDICADORES — aba nova, lê direto de volume_indicadores /
+   cobertura_indicadores / heishop_indicadores (pipeline scripts/import_fundamentos.js),
+   sem passar por vendor_snapshots. INDICADORES_DATA é carregado em auth_and_db.js.
+===================================================================== */
+let INDICADORES_DATA = null;   // { volume:[...], cobertura:[...], heishop:[...], datasDisponiveis:[...] }
+let INDICADORES_DATE = null;   // data_referencia selecionada
+let INDICADORES_SUBTAB = 'volume'; // 'volume' | 'cobertura' | 'heishop'
+
 function colLetterToNum(ws, r, c){
   const addr = XLSX.utils.encode_cell({r:r-1, c:c-1});
   const cell = ws[addr];
@@ -1584,6 +1593,184 @@ function buildTable(section, idx, sheetName){
   </div>`;
 }
 
+/* =====================================================================
+   INDICADORES — tabela genérica pras 3 tabelas novas (volume_indicadores /
+   cobertura_indicadores / heishop_indicadores). Cada categoria carrega seu
+   próprio conjunto de campos (INDIC_FIELD_DEFS), porque o HEISHOP tem blocos
+   heterogêneos (Meta/Real, Fat.Total/Fat.HEISHOP/Pedidos, Devolução).
+===================================================================== */
+const INDIC_FIELD_DEFS = {
+  padrao: [
+    { label:'Meta', key:'meta', kind:'num' },
+    { label:'Real', key:'real', kind:'num' },
+    { label:'%', key:'percentual', kind:'pct' },
+    { label:'Necessidade Dia', key:'necessidade_dia', kind:'int' },
+  ],
+  faturamento_pedido: [
+    { label:'Fat. Total', key:'fat_total', kind:'num' },
+    { label:'Fat. HEISHOP', key:'fat_heishop', kind:'num' },
+    { label:'%', key:'percentual', kind:'pct' },
+    { label:'Pedidos HEISHOP', key:'pedidos_heishop', kind:'int' },
+  ],
+  devolucao: [
+    { label:'Dev. Faturamento', key:'dev_faturamento', kind:'num' },
+    { label:'Dev x Fat', key:'dev_x_fat', kind:'pct' },
+  ],
+};
+
+function renderIndicCell(kind, value){
+  if(kind === 'pct'){
+    const p = fmtPct(value);
+    if(p.text === '—') return '<td class="num">—</td>';
+    return '<td class="'+p.cls+'"><div class="pct-cell"><span class="pct-bar"><span style="width:'+p.width+'%"></span></span>'+p.text+'</div></td>';
+  }
+  if(kind === 'int') return '<td class="num">'+fmtInt(value)+'</td>';
+  return '<td class="num">'+fmtNum(value)+'</td>';
+}
+
+// Agrupa as linhas (já filtradas por data_referencia) em supervisor -> vendedor
+// -> ordem_bloco, e monta a lista de colunas (uma por ordem_bloco) na ordem em
+// que os blocos apareciam na planilha. Categorias com nome repetido (ex: as
+// duas ocorrências de "SKU x PDV HNK" em Coberturas) ganham um sufixo com o
+// número do bloco pra não ficarem ambíguas no cabeçalho.
+function groupIndicadoresRows(rows){
+  const colsMap = new Map();
+  const supMap = new Map();
+  rows.forEach(r=>{
+    if(!colsMap.has(r.ordem_bloco)){
+      colsMap.set(r.ordem_bloco, {
+        categoria: r.categoria, categoriaDescricao: r.categoria_descricao,
+        ordemBloco: r.ordem_bloco, tipoBloco: r.tipo_bloco || 'padrao',
+      });
+    }
+    if(!supMap.has(r.supervisor)) supMap.set(r.supervisor, new Map());
+    const vendMap = supMap.get(r.supervisor);
+    if(!vendMap.has(r.vendedor)) vendMap.set(r.vendedor, { vendedor:r.vendedor, pdvs:r.pdvs, cells:new Map() });
+    vendMap.get(r.vendedor).cells.set(r.ordem_bloco, r);
+  });
+  const colunas = [...colsMap.values()].sort((a,b)=>a.ordemBloco-b.ordemBloco);
+  const nameCount = new Map();
+  colunas.forEach(c=>nameCount.set(c.categoria, (nameCount.get(c.categoria)||0) + 1));
+  colunas.forEach(c=>{ c.displayLabel = nameCount.get(c.categoria) > 1 ? c.categoria + ' (' + c.ordemBloco + ')' : c.categoria; });
+  return { supMap, colunas };
+}
+
+function buildIndicadoresTable(supName, vendedores, colunas){
+  let catRow = '<tr class="cat-row"><th class="name-col" style="min-width:170px;">Vendedor</th><th style="min-width:50px;">PDVs</th>';
+  let fieldRow = '<tr class="field-row"><th class="name-col"></th><th></th>';
+  colunas.forEach(col=>{
+    const fields = INDIC_FIELD_DEFS[col.tipoBloco] || INDIC_FIELD_DEFS.padrao;
+    catRow += '<th colspan="'+fields.length+'" title="'+(col.categoriaDescricao||'').replace(/"/g,'&quot;')+'">'+prettyLabel(col.displayLabel)+'</th>';
+    fields.forEach((f,fi)=>{ fieldRow += '<th'+(fi===0?' class="group-start"':'')+'>'+f.label+'</th>'; });
+  });
+  catRow += '</tr>'; fieldRow += '</tr>';
+
+  let rows = '';
+  vendedores.forEach(v=>{
+    const vago = isVago(v.vendedor);
+    rows += '<tr class="'+(vago?'vago-row':'')+'"><td class="name-col">'+v.vendedor+(vago?' <span style="font-size:10.5px;">(vaga)</span>':'')+'</td><td class="num">'+fmtInt(v.pdvs)+'</td>';
+    colunas.forEach(col=>{
+      const fields = INDIC_FIELD_DEFS[col.tipoBloco] || INDIC_FIELD_DEFS.padrao;
+      const row = v.cells.get(col.ordemBloco);
+      fields.forEach(f=>{ rows += renderIndicCell(f.kind, row ? row[f.key] : null); });
+    });
+    rows += '</tr>';
+  });
+
+  let totalRow = '<tr class="agg-total"><td class="name-col">'+supName+' (total)</td><td class="num">'+fmtInt(vendedores.reduce((s,v)=>s+(v.pdvs||0),0))+'</td>';
+  colunas.forEach(col=>{
+    const fields = INDIC_FIELD_DEFS[col.tipoBloco] || INDIC_FIELD_DEFS.padrao;
+    const sums = {}; fields.forEach(f=>sums[f.key]=0);
+    let any = false;
+    vendedores.forEach(v=>{
+      const row = v.cells.get(col.ordemBloco);
+      if(!row) return;
+      any = true;
+      fields.forEach(f=>{ if(typeof row[f.key] === 'number') sums[f.key] += row[f.key]; });
+    });
+    fields.forEach(f=>{
+      if(!any){ totalRow += renderIndicCell(f.kind, null); return; }
+      if(f.kind === 'pct'){
+        let val = null;
+        if(col.tipoBloco === 'padrao' && sums.meta) val = sums.real / sums.meta;
+        else if(col.tipoBloco === 'faturamento_pedido' && sums.fat_total) val = sums.fat_heishop / sums.fat_total;
+        totalRow += renderIndicCell('pct', val); // devolução não tem par pra derivar — fica '—'
+        return;
+      }
+      totalRow += renderIndicCell(f.kind, sums[f.key]);
+    });
+  });
+  totalRow += '</tr>';
+
+  return `
+  <div class="section-card">
+    <div class="section-head" onclick="toggleSection(this)">
+      <span class="chev">▾</span>
+      <h3>${supName}</h3>
+      <span class="n">${vendedores.length} vendedores</span>
+    </div>
+    <div class="section-body">
+      <div class="table-scroll">
+        <table class="data">
+          <thead>${catRow}${fieldRow}</thead>
+          <tbody>${rows}${totalRow}</tbody>
+        </table>
+      </div>
+    </div>
+  </div>`;
+}
+
+function selectIndicadoresTab(tab){ INDICADORES_SUBTAB = tab; render(); }
+function selectIndicadoresDate(date){ INDICADORES_DATE = date; render(); }
+
+function renderIndicadoresPage(){
+  if(!INDICADORES_DATA){
+    return '<div class="section-card"><div class="section-body" style="padding:20px;">Carregando indicadores…</div></div>';
+  }
+  const { volume, cobertura, heishop, datasDisponiveis } = INDICADORES_DATA;
+  if(!datasDisponiveis.length){
+    return '<div class="section-card"><div class="section-body" style="padding:20px;">Nenhum indicador importado ainda. Rode <code>scripts/import_fundamentos.js --commit</code> e recarregue a página.</div></div>';
+  }
+
+  const dateChips = datasDisponiveis.map(d=>{
+    const label = new Date(d+'T00:00:00').toLocaleDateString('pt-BR', {month:'2-digit', year:'numeric'});
+    return '<button class="cat-chip '+(d===INDICADORES_DATE?'active':'')+'" onclick="selectIndicadoresDate(\''+d+'\')">'+label+'</button>';
+  }).join('');
+
+  const tabDefs = [
+    { key:'volume', label:'Volume', rows:volume },
+    { key:'cobertura', label:'Coberturas', rows:cobertura },
+    { key:'heishop', label:'HEISHOP', rows:heishop },
+  ];
+  const rowsByTab = {};
+  tabDefs.forEach(t=>{ rowsByTab[t.key] = t.rows.filter(r=>r.data_referencia === INDICADORES_DATE); });
+  const tabChips = tabDefs.map(t=>
+    '<button class="cat-chip '+(t.key===INDICADORES_SUBTAB?'active':'')+'" onclick="selectIndicadoresTab(\''+t.key+'\')">'+t.label+' ('+rowsByTab[t.key].length+')</button>'
+  ).join('');
+
+  let html = '<div class="cat-filter" style="margin-bottom:10px;">'+dateChips+'</div>';
+  html += '<div class="cat-filter" style="margin-bottom:16px;">'+tabChips+'</div>';
+
+  const activeKey = tabDefs.find(t=>t.key===INDICADORES_SUBTAB) ? INDICADORES_SUBTAB : 'volume';
+  const rowsForDate = rowsByTab[activeKey];
+  if(!rowsForDate.length){
+    html += '<div class="sup-sub">Sem dados dessa aba pra essa data.</div>';
+    return html;
+  }
+
+  const { supMap, colunas } = groupIndicadoresRows(rowsForDate);
+  const term = SEARCH_TERM.trim().toLowerCase();
+  [...supMap.keys()].sort().forEach(supName=>{
+    let vendedores = [...supMap.get(supName).values()];
+    if(term) vendedores = vendedores.filter(v=>v.vendedor.toLowerCase().includes(term));
+    if(!vendedores.length) return;
+    vendedores.sort((a,b)=>a.vendedor.localeCompare(b.vendedor));
+    html += buildIndicadoresTable(supName, vendedores, colunas);
+  });
+
+  return html;
+}
+
 function toggleSort(sheetName, idx){
   const key = sheetName + ':' + idx;
   const cur = SORT_STATE[key] || null;
@@ -1599,11 +1786,11 @@ function toggleSection(headEl){
 function renderSidebar(){
   const fixed = document.getElementById('sup-list-fixed');
   const list = document.getElementById('sup-list');
-  if(!DATA){ fixed.innerHTML=''; list.innerHTML=''; return; }
 
   const ovActive = ACTIVE_SUP === 'OVERVIEW' ? 'active' : '';
   const cmActive = ACTIVE_SUP === 'COMMITMENTS' ? 'active' : '';
   const inActive = ACTIVE_SUP === 'INCENTIVO' ? 'active' : '';
+  const idActive = ACTIVE_SUP === 'INDICADORES' ? 'active' : '';
   fixed.innerHTML = `<button class="sup-btn ${ovActive}" onclick="selectSupervisor('OVERVIEW')">
       <span class="sup-avatar">▦</span>
       <span>Visão geral</span>
@@ -1616,7 +1803,15 @@ function renderSidebar(){
       <span class="sup-avatar">★</span>
       <span>Incentivo</span>
     </button>
+    <button class="sup-btn ${idActive}" onclick="selectSupervisor('INDICADORES')">
+      <span class="sup-avatar">▤</span>
+      <span>Indicadores</span>
+    </button>
     <div style="border-bottom:1px solid rgba(233,223,205,0.12); margin:8px 2px 4px;"></div>`;
+
+  // a lista de supervisores (do vendor_snapshots) some se não houver upload
+  // manual feito, mas os botões fixos acima (incl. Indicadores) continuam.
+  if(!DATA){ list.innerHTML=''; return; }
 
   list.innerHTML = DATA.supervisors.map(s=>{
     const initials = s.name.slice(0,2).toUpperCase();
@@ -1917,6 +2112,14 @@ function render(){
   const empty = document.getElementById('empty-state');
   const view = document.getElementById('data-view');
   const noMatch = document.getElementById('no-match');
+
+  if(ACTIVE_SUP === 'INDICADORES'){
+    empty.style.display = 'none';
+    view.style.display = 'block';
+    noMatch.style.display = 'none';
+    view.innerHTML = renderIndicadoresPage();
+    return;
+  }
 
   if(!DATA){
     empty.style.display = 'block';
