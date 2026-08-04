@@ -10,8 +10,8 @@
 
 create table if not exists necessidade_dia_categoria (
   id bigint generated always as identity primary key,
-  vendedor_codigo int not null,
-  cliente_id bigint not null references clientes(id) on delete cascade,
+  vendedor_codigo text not null,       -- clientes.vendedor_codigo é texto, não int — casa o tipo
+  cliente_id uuid not null references clientes(id) on delete cascade,
   data date not null,
   categoria text not null,              -- ex: 'rgb mainstream', 'craft' — mesmas da aba Indicadores
   tipo_indicador text not null check (tipo_indicador in ('volume', 'cobertura')),
