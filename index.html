@@ -1755,6 +1755,89 @@ function irParaNecessidadeDoVendedor(codigo, nome, supervisorNome){
   selecionarVendedorNecessidade(codigo, nome, supervisorNome);
 }
 
+// Soma os valores de uma lista de vendedores, coluna a coluna (usado tanto
+// pela linha de total de cada supervisor quanto pelo resumo geral). Retorna
+// Map(ordemBloco -> somas), com null pra colunas sem nenhum dado.
+function somarColunas(vendedores, colunas){
+  const result = new Map();
+  colunas.forEach(col=>{
+    const fields = INDIC_FIELD_DEFS[col.tipoBloco] || INDIC_FIELD_DEFS.padrao;
+    const sums = {}; fields.forEach(f=>sums[f.key]=0);
+    let any = false;
+    vendedores.forEach(v=>{
+      const row = v.cells.get(col.ordemBloco);
+      if(!row) return;
+      any = true;
+      fields.forEach(f=>{ if(typeof row[f.key] === 'number') sums[f.key] += row[f.key]; });
+    });
+    if(!any){ result.set(col.ordemBloco, null); return; }
+    if(col.tipoBloco === 'padrao' && sums.meta) sums._pct = sums.real / sums.meta;
+    else if(col.tipoBloco === 'faturamento_pedido' && sums.fat_total) sums._pct = sums.fat_heishop / sums.fat_total;
+    // devolução não tem par meta/real pra derivar uma razão agregada — fica '—'
+    result.set(col.ordemBloco, sums);
+  });
+  return result;
+}
+
+function renderSomaCelulas(somas, colunas){
+  let html = '';
+  colunas.forEach(col=>{
+    const fields = INDIC_FIELD_DEFS[col.tipoBloco] || INDIC_FIELD_DEFS.padrao;
+    const s = somas.get(col.ordemBloco);
+    fields.forEach(f=>{
+      if(!s){ html += renderIndicCell(f.kind, null); return; }
+      html += renderIndicCell(f.kind, f.kind === 'pct' ? (s._pct !== undefined ? s._pct : null) : s[f.key]);
+    });
+  });
+  return html;
+}
+
+// Resumo supervisor a supervisor + Total Revenda, no topo da aba — mesma
+// tabela visual das de vendedor, só que uma linha por supervisor. Sempre
+// mostra TODOS os supervisores e o total da empresa inteira, independente do
+// filtro de supervisor (que só afeta as tabelas de detalhe abaixo); o
+// supervisor filtrado, se houver, fica destacado com uma borda.
+function buildIndicSummaryTable(supMap, colunas, isHeishopTab){
+  let catRow = '<tr class="cat-row"><th class="name-col" style="min-width:170px;">Supervisor</th><th style="min-width:50px;">PDVs</th>';
+  let fieldRow = '<tr class="field-row"><th class="name-col"></th><th></th>';
+  colunas.forEach(col=>{
+    const fields = INDIC_FIELD_DEFS[col.tipoBloco] || INDIC_FIELD_DEFS.padrao;
+    const label = (isHeishopTab && col.categoria === 'rgb mainstream') ? 'Heishop' : col.displayLabel;
+    catRow += '<th colspan="'+fields.length+'" title="'+(col.categoriaDescricao||'').replace(/"/g,'&quot;')+'">'+prettyLabel(label)+'</th>';
+    fields.forEach((f,fi)=>{ fieldRow += '<th'+(fi===0?' class="group-start"':'')+'>'+f.label+'</th>'; });
+  });
+  catRow += '</tr>'; fieldRow += '</tr>';
+
+  const supNames = [...supMap.keys()].sort();
+  let rows = '';
+  let todosVendedores = [];
+  supNames.forEach(sup=>{
+    const vendedores = [...supMap.get(sup).values()];
+    todosVendedores = todosVendedores.concat(vendedores);
+    const pdvs = vendedores.reduce((s,v)=>s+(v.pdvs||0),0);
+    const destaque = INDICADORES_SUP_FILTER === sup ? ' style="box-shadow:inset 3px 0 0 var(--copper);"' : '';
+    rows += '<tr'+destaque+'><td class="name-col">'+sup+'</td><td class="num">'+fmtInt(pdvs)+'</td>';
+    rows += renderSomaCelulas(somarColunas(vendedores, colunas), colunas);
+    rows += '</tr>';
+  });
+
+  const pdvsTotal = todosVendedores.reduce((s,v)=>s+(v.pdvs||0),0);
+  let totalRow = '<tr class="agg-total"><td class="name-col">TOTAL REVENDA</td><td class="num">'+fmtInt(pdvsTotal)+'</td>';
+  totalRow += renderSomaCelulas(somarColunas(todosVendedores, colunas), colunas);
+  totalRow += '</tr>';
+
+  return `
+  <div style="margin:4px 0 22px;">
+    <div style="font-family:'IBM Plex Mono',monospace;font-size:10.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:8px;">Resumo — supervisor a supervisor</div>
+    <div class="table-scroll" style="border:1px solid var(--line); border-radius:12px;">
+      <table class="data">
+        <thead>${catRow}${fieldRow}</thead>
+        <tbody>${rows}${totalRow}</tbody>
+      </table>
+    </div>
+  </div>`;
+}
+
 function buildIndicadoresTable(supName, vendedores, colunas, isHeishopTab){
   let catRow = '<tr class="cat-row"><th class="name-col" style="min-width:170px;">Vendedor</th><th style="min-width:50px;">PDVs</th>';
   let fieldRow = '<tr class="field-row"><th class="name-col"></th><th></th>';
@@ -1788,28 +1871,7 @@ function buildIndicadoresTable(supName, vendedores, colunas, isHeishopTab){
   });
 
   let totalRow = '<tr class="agg-total"><td class="name-col">'+supName+' (total)</td><td class="num">'+fmtInt(vendedores.reduce((s,v)=>s+(v.pdvs||0),0))+'</td>';
-  colunas.forEach(col=>{
-    const fields = INDIC_FIELD_DEFS[col.tipoBloco] || INDIC_FIELD_DEFS.padrao;
-    const sums = {}; fields.forEach(f=>sums[f.key]=0);
-    let any = false;
-    vendedores.forEach(v=>{
-      const row = v.cells.get(col.ordemBloco);
-      if(!row) return;
-      any = true;
-      fields.forEach(f=>{ if(typeof row[f.key] === 'number') sums[f.key] += row[f.key]; });
-    });
-    fields.forEach(f=>{
-      if(!any){ totalRow += renderIndicCell(f.kind, null); return; }
-      if(f.kind === 'pct'){
-        let val = null;
-        if(col.tipoBloco === 'padrao' && sums.meta) val = sums.real / sums.meta;
-        else if(col.tipoBloco === 'faturamento_pedido' && sums.fat_total) val = sums.fat_heishop / sums.fat_total;
-        totalRow += renderIndicCell('pct', val); // devolução não tem par pra derivar — fica '—'
-        return;
-      }
-      totalRow += renderIndicCell(f.kind, sums[f.key]);
-    });
-  });
+  totalRow += renderSomaCelulas(somarColunas(vendedores, colunas), colunas);
   totalRow += '</tr>';
 
   return `
@@ -1913,6 +1975,8 @@ function renderIndicadoresPage(){
   // seleção vazia = mostra todas as categorias; com 1+ selecionadas, mostra só essas
   const selectedCats = INDICADORES_CAT_SELECTED[activeKey] || new Set();
   const visibleColunas = selectedCats.size === 0 ? colunas : colunas.filter(c => selectedCats.has(c.ordemBloco));
+
+  html += buildIndicSummaryTable(supMap, visibleColunas, isHeishopTab);
 
   const supsToShow = (INDICADORES_SUP_FILTER && supMap.has(INDICADORES_SUP_FILTER))
     ? [INDICADORES_SUP_FILTER] : supNames;
