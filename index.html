@@ -235,6 +235,9 @@
   .pct-good{ color:var(--good); } .pct-good .pct-bar>span{ background:var(--good); }
   .pct-warn{ color:var(--warn); } .pct-warn .pct-bar>span{ background:var(--warn); }
   .pct-bad{ color:var(--bad-text); } .pct-bad .pct-bar>span{ background:var(--bad); }
+  table.data td.delta-col, table.data th.delta-col{ background:rgba(0,130,0,.05); }
+  .delta-up{ color:var(--good); font-weight:700; }
+  .delta-down{ color:var(--bad-text); font-weight:700; }
 
   .legend{ display:flex; gap:16px; align-items:center; margin:14px 0 20px; flex-wrap:wrap; font-size:11.5px; color:var(--muted); }
   .legend .dot{ width:8px; height:8px; border-radius:50%; display:inline-block; margin-right:5px; }
@@ -475,6 +478,7 @@ function sectionLabel(i){ return SECTION_LABELS[i] || ('Bloco ' + (i+1)); }
 ===================================================================== */
 let INDICADORES_DATA = null;   // { volume:[...], cobertura:[...], heishop:[...], datasDisponiveis:[...] }
 let INDICADORES_DATE = null;   // data_referencia selecionada
+let INDICADORES_DATE_COMPARACAO = null; // data_referencia a comparar (null = sem comparação)
 let INDICADORES_SUBTAB = 'volume'; // 'volume' | 'cobertura' | 'heishop'
 let INDICADORES_SUP_FILTER = null; // null = todos os supervisores, ou o nome de um só
 // { volume: Set(ordemBloco), cobertura: Set(...), heishop: Set(...) } — vazio = mostra
@@ -1779,7 +1783,62 @@ function somarColunas(vendedores, colunas){
   return result;
 }
 
-function renderSomaCelulas(somas, colunas){
+// Mapeia, por tipo de bloco, qual campo representa "o valor principal" pra
+// comparar mês a mês (não dá pra comparar Meta/Real com Fat.Total/Fat.HEISHOP
+// no mesmo eixo — cada tipo tem seu próprio campo de referência).
+const DELTA_FIELD_BY_TIPO = { padrao: 'real', faturamento_pedido: 'fat_heishop', devolucao: 'dev_faturamento' };
+
+function renderDeltaCell(valorAtual, valorAnterior){
+  if(typeof valorAtual !== 'number' || typeof valorAnterior !== 'number' || valorAnterior === 0){
+    return '<td class="num delta-col">—</td>';
+  }
+  const delta = (valorAtual - valorAnterior) / valorAnterior;
+  if(delta === 0) return '<td class="num delta-col">0%</td>';
+  const cls = delta > 0 ? 'delta-up' : 'delta-down';
+  const arrow = delta > 0 ? '▲' : '▼';
+  const pct = Math.abs(delta * 100).toLocaleString('pt-BR', { maximumFractionDigits: 1 });
+  return '<td class="num delta-col '+cls+'">'+arrow+' '+(delta>0?'+':'-')+pct+'%</td>';
+}
+
+// Cabeçalho de 2 linhas compartilhado entre o resumo e o detalhe — com uma
+// coluna "Δ vs MM/AAAA" a mais por bloco quando há mês de comparação ativo.
+function buildIndicTableHeader(firstColLabel, colunas, isHeishopTab, comparacaoLabel){
+  let catRow = '<tr class="cat-row"><th class="name-col" style="min-width:170px;">'+firstColLabel+'</th><th style="min-width:50px;">PDVs</th>';
+  let fieldRow = '<tr class="field-row"><th class="name-col"></th><th></th>';
+  colunas.forEach(col=>{
+    const fields = INDIC_FIELD_DEFS[col.tipoBloco] || INDIC_FIELD_DEFS.padrao;
+    const label = (isHeishopTab && col.categoria === 'rgb mainstream') ? 'Heishop' : col.displayLabel;
+    const colspan = fields.length + (comparacaoLabel ? 1 : 0);
+    catRow += '<th colspan="'+colspan+'" title="'+(col.categoriaDescricao||'').replace(/"/g,'&quot;')+'">'+prettyLabel(label)+'</th>';
+    fields.forEach((f,fi)=>{ fieldRow += '<th'+(fi===0?' class="group-start"':'')+'>'+f.label+'</th>'; });
+    if(comparacaoLabel) fieldRow += '<th class="delta-col group-start">Δ vs '+comparacaoLabel+'</th>';
+  });
+  catRow += '</tr>'; fieldRow += '</tr>';
+  return catRow + fieldRow;
+}
+
+// Células de UM vendedor: valores normais + (se houver comparação) o delta
+// contra a mesma célula (mesmo ordem_bloco) do mês de comparação.
+function renderVendorRowCells(v, compVendEntry, colunas, comparacaoLabel){
+  let html = '';
+  colunas.forEach(col=>{
+    const fields = INDIC_FIELD_DEFS[col.tipoBloco] || INDIC_FIELD_DEFS.padrao;
+    const row = v.cells.get(col.ordemBloco);
+    fields.forEach(f=>{ html += renderIndicCell(f.kind, row ? row[f.key] : null); });
+    if(comparacaoLabel){
+      const field = DELTA_FIELD_BY_TIPO[col.tipoBloco] || 'real';
+      const compRow = compVendEntry ? compVendEntry.cells.get(col.ordemBloco) : null;
+      html += renderDeltaCell(row ? row[field] : null, compRow ? compRow[field] : null);
+    }
+  });
+  return html;
+}
+
+// Células de uma linha agregada (total de um supervisor, ou TOTAL REVENDA):
+// soma dos vendedores + delta agregado (soma atual vs soma do mês anterior).
+function renderAggregateRowCells(vendedores, compVendedores, colunas, comparacaoLabel){
+  const somas = somarColunas(vendedores, colunas);
+  const somasComp = comparacaoLabel ? somarColunas(compVendedores || [], colunas) : null;
   let html = '';
   colunas.forEach(col=>{
     const fields = INDIC_FIELD_DEFS[col.tipoBloco] || INDIC_FIELD_DEFS.padrao;
@@ -1788,6 +1847,11 @@ function renderSomaCelulas(somas, colunas){
       if(!s){ html += renderIndicCell(f.kind, null); return; }
       html += renderIndicCell(f.kind, f.kind === 'pct' ? (s._pct !== undefined ? s._pct : null) : s[f.key]);
     });
+    if(comparacaoLabel){
+      const field = DELTA_FIELD_BY_TIPO[col.tipoBloco] || 'real';
+      const sComp = somasComp.get(col.ordemBloco);
+      html += renderDeltaCell(s ? s[field] : null, sComp ? sComp[field] : null);
+    }
   });
   return html;
 }
@@ -1797,33 +1861,28 @@ function renderSomaCelulas(somas, colunas){
 // mostra TODOS os supervisores e o total da empresa inteira, independente do
 // filtro de supervisor (que só afeta as tabelas de detalhe abaixo); o
 // supervisor filtrado, se houver, fica destacado com uma borda.
-function buildIndicSummaryTable(supMap, colunas, isHeishopTab){
-  let catRow = '<tr class="cat-row"><th class="name-col" style="min-width:170px;">Supervisor</th><th style="min-width:50px;">PDVs</th>';
-  let fieldRow = '<tr class="field-row"><th class="name-col"></th><th></th>';
-  colunas.forEach(col=>{
-    const fields = INDIC_FIELD_DEFS[col.tipoBloco] || INDIC_FIELD_DEFS.padrao;
-    const label = (isHeishopTab && col.categoria === 'rgb mainstream') ? 'Heishop' : col.displayLabel;
-    catRow += '<th colspan="'+fields.length+'" title="'+(col.categoriaDescricao||'').replace(/"/g,'&quot;')+'">'+prettyLabel(label)+'</th>';
-    fields.forEach((f,fi)=>{ fieldRow += '<th'+(fi===0?' class="group-start"':'')+'>'+f.label+'</th>'; });
-  });
-  catRow += '</tr>'; fieldRow += '</tr>';
+function buildIndicSummaryTable(supMap, colunas, isHeishopTab, compSupMap, comparacaoLabel){
+  const header = buildIndicTableHeader('Supervisor', colunas, isHeishopTab, comparacaoLabel);
 
   const supNames = [...supMap.keys()].sort();
   let rows = '';
   let todosVendedores = [];
+  let todosVendedoresComp = [];
   supNames.forEach(sup=>{
     const vendedores = [...supMap.get(sup).values()];
     todosVendedores = todosVendedores.concat(vendedores);
+    const compVendedores = compSupMap && compSupMap.has(sup) ? [...compSupMap.get(sup).values()] : [];
+    todosVendedoresComp = todosVendedoresComp.concat(compVendedores);
     const pdvs = vendedores.reduce((s,v)=>s+(v.pdvs||0),0);
     const destaque = INDICADORES_SUP_FILTER === sup ? ' style="box-shadow:inset 3px 0 0 var(--copper);"' : '';
     rows += '<tr'+destaque+'><td class="name-col">'+sup+'</td><td class="num">'+fmtInt(pdvs)+'</td>';
-    rows += renderSomaCelulas(somarColunas(vendedores, colunas), colunas);
+    rows += renderAggregateRowCells(vendedores, compVendedores, colunas, comparacaoLabel);
     rows += '</tr>';
   });
 
   const pdvsTotal = todosVendedores.reduce((s,v)=>s+(v.pdvs||0),0);
   let totalRow = '<tr class="agg-total"><td class="name-col">TOTAL REVENDA</td><td class="num">'+fmtInt(pdvsTotal)+'</td>';
-  totalRow += renderSomaCelulas(somarColunas(todosVendedores, colunas), colunas);
+  totalRow += renderAggregateRowCells(todosVendedores, todosVendedoresComp, colunas, comparacaoLabel);
   totalRow += '</tr>';
 
   return `
@@ -1831,26 +1890,16 @@ function buildIndicSummaryTable(supMap, colunas, isHeishopTab){
     <div style="font-family:'IBM Plex Mono',monospace;font-size:10.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:8px;">Resumo — supervisor a supervisor</div>
     <div class="table-scroll" style="border:1px solid var(--line); border-radius:12px;">
       <table class="data">
-        <thead>${catRow}${fieldRow}</thead>
+        <thead>${header}</thead>
         <tbody>${rows}${totalRow}</tbody>
       </table>
     </div>
   </div>`;
 }
 
-function buildIndicadoresTable(supName, vendedores, colunas, isHeishopTab){
-  let catRow = '<tr class="cat-row"><th class="name-col" style="min-width:170px;">Vendedor</th><th style="min-width:50px;">PDVs</th>';
-  let fieldRow = '<tr class="field-row"><th class="name-col"></th><th></th>';
-  colunas.forEach(col=>{
-    const fields = INDIC_FIELD_DEFS[col.tipoBloco] || INDIC_FIELD_DEFS.padrao;
-    // No HEISHOP, o bloco 1 é gravado no banco com categoria "rgb mainstream"
-    // (nome herdado do mesmo bloco em Volume/Coberturas — a chave interna não
-    // muda, só a exibição): mostra "Heishop" aqui pra não parecer dado de Volume.
-    const label = (isHeishopTab && col.categoria === 'rgb mainstream') ? 'Heishop' : col.displayLabel;
-    catRow += '<th colspan="'+fields.length+'" title="'+(col.categoriaDescricao||'').replace(/"/g,'&quot;')+'">'+prettyLabel(label)+'</th>';
-    fields.forEach((f,fi)=>{ fieldRow += '<th'+(fi===0?' class="group-start"':'')+'>'+f.label+'</th>'; });
-  });
-  catRow += '</tr>'; fieldRow += '</tr>';
+function buildIndicadoresTable(supName, vendedores, colunas, isHeishopTab, compSupMap, comparacaoLabel){
+  const header = buildIndicTableHeader('Vendedor', colunas, isHeishopTab, comparacaoLabel);
+  const compVendMap = compSupMap ? compSupMap.get(supName) : null;
 
   let rows = '';
   vendedores.forEach(v=>{
@@ -1862,16 +1911,13 @@ function buildIndicadoresTable(supName, vendedores, colunas, isHeishopTab){
         + 'style="margin-left:6px;font-size:11px;text-decoration:none;">☑</a>'
       : '';
     rows += '<tr class="'+(vago?'vago-row':'')+'"><td class="name-col">'+v.vendedor+(vago?' <span style="font-size:10.5px;">(vaga)</span>':'')+linkNecessidade+'</td><td class="num">'+fmtInt(v.pdvs)+'</td>';
-    colunas.forEach(col=>{
-      const fields = INDIC_FIELD_DEFS[col.tipoBloco] || INDIC_FIELD_DEFS.padrao;
-      const row = v.cells.get(col.ordemBloco);
-      fields.forEach(f=>{ rows += renderIndicCell(f.kind, row ? row[f.key] : null); });
-    });
+    rows += renderVendorRowCells(v, compVendMap ? compVendMap.get(v.vendedor) : null, colunas, comparacaoLabel);
     rows += '</tr>';
   });
 
+  const compVendedoresList = compVendMap ? [...compVendMap.values()] : [];
   let totalRow = '<tr class="agg-total"><td class="name-col">'+supName+' (total)</td><td class="num">'+fmtInt(vendedores.reduce((s,v)=>s+(v.pdvs||0),0))+'</td>';
-  totalRow += renderSomaCelulas(somarColunas(vendedores, colunas), colunas);
+  totalRow += renderAggregateRowCells(vendedores, compVendedoresList, colunas, comparacaoLabel);
   totalRow += '</tr>';
 
   return `
@@ -1884,7 +1930,7 @@ function buildIndicadoresTable(supName, vendedores, colunas, isHeishopTab){
     <div class="section-body">
       <div class="table-scroll">
         <table class="data">
-          <thead>${catRow}${fieldRow}</thead>
+          <thead>${header}</thead>
           <tbody>${rows}${totalRow}</tbody>
         </table>
       </div>
@@ -1893,7 +1939,12 @@ function buildIndicadoresTable(supName, vendedores, colunas, isHeishopTab){
 }
 
 function selectIndicadoresTab(tab){ INDICADORES_SUBTAB = tab; render(); }
-function selectIndicadoresDate(date){ INDICADORES_DATE = date; render(); }
+function selectIndicadoresDate(date){
+  INDICADORES_DATE = date;
+  if(INDICADORES_DATE_COMPARACAO === date) INDICADORES_DATE_COMPARACAO = null; // não compara um mês com ele mesmo
+  render();
+}
+function selectIndicadoresComparacao(date){ INDICADORES_DATE_COMPARACAO = date; render(); }
 function selectIndicadoresSup(sup){ INDICADORES_SUP_FILTER = sup; render(); }
 // Clicar numa categoria ADICIONA ela à seleção (multi-seleção). Com a seleção
 // vazia, mostra tudo; com 1+ selecionadas, mostra só essas.
@@ -2012,10 +2063,10 @@ function renderIndicadoresPage(){
     return '<div class="section-card"><div class="section-body" style="padding:20px;">Nenhum indicador importado ainda. Rode <code>scripts/import_fundamentos.js --commit</code> e recarregue a página.</div></div>';
   }
 
-  const dateChips = datasDisponiveis.map(d=>{
-    const label = new Date(d+'T00:00:00').toLocaleDateString('pt-BR', {month:'2-digit', year:'numeric'});
-    return '<button class="cat-chip '+(d===INDICADORES_DATE?'active':'')+'" onclick="selectIndicadoresDate(\''+d+'\')">'+label+'</button>';
-  }).join('');
+  const fmtMesAno = d => new Date(d+'T00:00:00').toLocaleDateString('pt-BR', {month:'2-digit', year:'numeric'});
+  const dateChips = datasDisponiveis.map(d=>
+    '<button class="cat-chip '+(d===INDICADORES_DATE?'active':'')+'" onclick="selectIndicadoresDate(\''+d+'\')">'+fmtMesAno(d)+'</button>'
+  ).join('');
 
   const tabDefs = [
     { key:'volume', label:'Volume', rows:volume },
@@ -2040,10 +2091,28 @@ function renderIndicadoresPage(){
   }
 
   // "Clientes sem comprar" tem forma bem diferente das outras 3 (sem categoria,
-  // sem Meta/Real) — segue por um caminho de renderização próprio.
+  // sem Meta/Real) — segue por um caminho de renderização próprio, sem comparação.
   if(activeKey === 'sem_compra'){
     return html + renderClientesSemCompraTab(rowsForDate);
   }
+
+  // Comparação mês a mês — só faz sentido com 2+ meses disponíveis; opção
+  // "Nenhuma" desliga. Não deixa comparar o mês selecionado com ele mesmo.
+  const outrosMeses = datasDisponiveis.filter(d => d !== INDICADORES_DATE);
+  if(outrosMeses.length){
+    const noneActive = !INDICADORES_DATE_COMPARACAO ? 'active' : '';
+    let compChips = '<button class="cat-chip '+noneActive+'" onclick="selectIndicadoresComparacao(null)">Nenhuma</button>';
+    compChips += outrosMeses.map(d=>
+      '<button class="cat-chip '+(d===INDICADORES_DATE_COMPARACAO?'active':'')+'" onclick="selectIndicadoresComparacao(\''+d+'\')">'+fmtMesAno(d)+'</button>'
+    ).join('');
+    html += '<div class="sup-sub" style="margin-top:0;">Comparar com:</div>';
+    html += '<div class="cat-filter" style="margin-bottom:16px;">'+compChips+'</div>';
+  }
+  const comparacaoLabel = (INDICADORES_DATE_COMPARACAO && outrosMeses.includes(INDICADORES_DATE_COMPARACAO))
+    ? fmtMesAno(INDICADORES_DATE_COMPARACAO) : null;
+  const compSupMap = comparacaoLabel
+    ? groupIndicadoresRows(tabDefs.find(t=>t.key===activeKey).rows.filter(r=>r.data_referencia===INDICADORES_DATE_COMPARACAO)).supMap
+    : null;
 
   const { supMap, colunas } = groupIndicadoresRows(rowsForDate);
   const supNames = [...supMap.keys()].sort();
@@ -2057,7 +2126,7 @@ function renderIndicadoresPage(){
   const selectedCats = INDICADORES_CAT_SELECTED[activeKey] || new Set();
   const visibleColunas = selectedCats.size === 0 ? colunas : colunas.filter(c => selectedCats.has(c.ordemBloco));
 
-  html += buildIndicSummaryTable(supMap, visibleColunas, isHeishopTab);
+  html += buildIndicSummaryTable(supMap, visibleColunas, isHeishopTab, compSupMap, comparacaoLabel);
 
   const supsToShow = (INDICADORES_SUP_FILTER && supMap.has(INDICADORES_SUP_FILTER))
     ? [INDICADORES_SUP_FILTER] : supNames;
@@ -2071,7 +2140,7 @@ function renderIndicadoresPage(){
     let vendedores = [...supMap.get(supName).values()];
     if(term) vendedores = vendedores.filter(v=>v.vendedor.toLowerCase().includes(term));
     if(!vendedores.length) return;
-    html += buildIndicadoresTable(supName, vendedores, visibleColunas, isHeishopTab);
+    html += buildIndicadoresTable(supName, vendedores, visibleColunas, isHeishopTab, compSupMap, comparacaoLabel);
     anyRendered = true;
   });
   if(!anyRendered) html += '<div class="sup-sub">Nenhum vendedor encontrado.</div>';

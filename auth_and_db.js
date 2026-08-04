@@ -159,6 +159,9 @@ async function loadDataFromDB(){
     if(!INDICADORES_DATE || !datasDisponiveis.includes(INDICADORES_DATE)){
       INDICADORES_DATE = datasDisponiveis[0] || null;
     }
+    if(INDICADORES_DATE_COMPARACAO && !datasDisponiveis.includes(INDICADORES_DATE_COMPARACAO)){
+      INDICADORES_DATE_COMPARACAO = null;
+    }
   }catch(e){
     console.error(e);
     if(!INDICADORES_DATA) INDICADORES_DATA = { volume:[], cobertura:[], heishop:[], clientesSemCompra:[], datasDisponiveis:[] };
