@@ -177,7 +177,7 @@
   .section-head .n{
     font-family:'IBM Plex Mono',monospace; font-size:11px; color:var(--muted);
   }
-  .table-scroll{ overflow-x:auto; }
+  .table-scroll{ overflow-x:auto; overflow-y:auto; max-height:65vh; }
   .section-body.collapsed{ display:none; }
 
   table.data{
@@ -2285,6 +2285,27 @@ function renderSidebar(){
 
 function renderTopMeta(){
   const el = document.getElementById('meta-info');
+
+  // Fonte principal: Indicadores (volume_indicadores), que é o que o botão
+  // "Atualizar Fundamentos" grava a cada import — sempre reflete o arquivo
+  // mais recente, sem precisar do fluxo antigo de "Carregar Excel".
+  const indic = (typeof INDICADORES_DATA !== 'undefined' && INDICADORES_DATA) ? INDICADORES_DATA : null;
+  const indicRow = indic ? indic.volume.find(r => r.data_referencia === INDICADORES_DATE) : null;
+
+  if(indicRow){
+    const d = new Date(indicRow.data_referencia + 'T00:00:00');
+    const dateStr = !isNaN(d) ? d.toLocaleDateString('pt-BR') : indicRow.data_referencia;
+    el.innerHTML = `
+      <span>Data: <b>${dateStr}</b></span>
+      <span>Dias úteis: <b>${indicRow.dias_uteis_venda ?? '—'}</b></span>
+      <span>Trabalhados: <b>${indicRow.dias_trabalhados ?? '—'}</b></span>
+      <span>Faltantes: <b>${indicRow.dias_faltantes ?? '—'}</b></span>
+    `;
+    return;
+  }
+
+  // Fallback: fluxo antigo de "Carregar Excel" (vendor_snapshots/meta), só
+  // usado se ainda não houver nenhum import de Indicadores carregado.
   if(!DATA){ el.innerHTML=''; return; }
   const m = DATA.meta;
   let dateStr = '—';
