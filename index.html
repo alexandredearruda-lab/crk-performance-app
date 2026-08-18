@@ -214,6 +214,7 @@
   }
   table.data thead th.name-col{ z-index:4; background:#fff; }
   table.data thead tr.cat-row th.name-col{ background:var(--malt-900); }
+  .necessidade-clientes-table .name-col{ min-width:190px; }
   table.data td.setor-col, table.data th.setor-col{
     text-align:left; position:sticky; left:0; background:#fff; z-index:3;
   }
@@ -1590,7 +1591,7 @@ function renderCommitmentsPage(){
 
   let thead;
   if(categoriasSelecionadas.length){
-    let catRow = '<th class="name-col" rowspan="2" style="min-width:190px;">Cliente</th><th class="col-cidade" rowspan="2">Cidade</th>'
+    let catRow = '<th class="name-col" rowspan="2">Cliente</th><th class="col-cidade" rowspan="2">Cidade</th>'
       + '<th class="col-canal" rowspan="2">Canal</th>';
     let fieldRow = '';
     categoriasSelecionadas.forEach(cat=>{
@@ -1600,7 +1601,7 @@ function renderCommitmentsPage(){
     thead = '<tr class="cat-row">'+catRow+'</tr><tr class="field-row">'+fieldRow+'</tr>';
   } else {
     thead = `<tr>
-      <th class="name-col" style="min-width:190px;">Cliente</th>
+      <th class="name-col">Cliente</th>
       <th class="col-cidade">Cidade</th>
       <th class="col-canal">Canal</th>
       <th style="min-width:110px;">Desafio</th>
