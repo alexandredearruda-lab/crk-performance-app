@@ -361,6 +361,12 @@
     .necessidade-clientes-table .col-cidade,
     .necessidade-clientes-table .col-canal{ display:none; }
     .necessidade-clientes-table input{ font-size:16px; } /* evita zoom automático do Safari */
+    /* coluna Cliente fixa (sticky) estava tomando quase metade da tela e
+       espremendo Vol. Desafio/Vol. Real — estreita e trunca com "…" */
+    .necessidade-clientes-table .name-col{
+      min-width:0; width:112px; max-width:112px;
+      overflow:hidden; text-overflow:ellipsis;
+    }
   }
 
 
