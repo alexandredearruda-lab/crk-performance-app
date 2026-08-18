@@ -1221,14 +1221,20 @@ let NECESSIDADE_VENDEDOR = null; // { codigo, nome, supervisorNome }
 let NECESSIDADE_DIA = null;      // 'SEG'..'SEX'
 let NECESSIDADE_CATEGORIAS_SELECIONADAS = new Set(); // categorias marcadas pro desafio do dia (multi-seleção)
 
-// Lista de categorias do seletor: só as que existem em Volume E Cobertura ao
-// mesmo tempo (senão um dos dois blocos de 4 campos ficaria sempre vazio).
+// Lista de categorias do seletor: as que existem em Volume E Cobertura ao
+// mesmo tempo (senão um dos dois blocos de 4 campos ficaria sempre vazio),
+// mais as extras abaixo — categorias só de Cobertura liberadas manualmente
+// por fazerem sentido como desafio do dia mesmo sem par em Volume.
+const NECESSIDADE_CATEGORIAS_EXTRA_COBERTURA = ['rgb economy'];
+
 function categoriasComunsVolumeCobertura(){
   const data = typeof INDICADORES_DATA !== 'undefined' ? INDICADORES_DATA : null;
   if(!data) return [];
   const volCats = new Set((data.volume||[]).map(r=>r.categoria));
   const covCats = new Set((data.cobertura||[]).map(r=>r.categoria));
-  return [...volCats].filter(c => covCats.has(c)).sort((a,b)=>a.localeCompare(b));
+  const comuns = [...volCats].filter(c => covCats.has(c));
+  const extras = NECESSIDADE_CATEGORIAS_EXTRA_COBERTURA.filter(c => covCats.has(c) && !comuns.includes(c));
+  return [...comuns, ...extras].sort((a,b)=>a.localeCompare(b));
 }
 
 function toggleNecessidadeCategoria(categoria){
