@@ -2168,7 +2168,24 @@ function buildIndicSummaryTable(supMap, colunas, isHeishopTab, compSupMap, compa
   </div>`;
 }
 
-function buildIndicadoresTable(supName, vendedores, colunas, isHeishopTab, compSupMap, comparacaoLabel, mesAtualLabel, compOrdemByKey){
+// Monta um "vendedor" falso a partir das linhas já agregadas que vieram da
+// função do banco (schema_mesa_total_vendedor.sql) — só pra reaproveitar
+// renderVendorRowCells sem duplicar a lógica de qual campo mostrar por
+// tipo de bloco (isso já mora em indicFieldsToShow/renderIndicCell).
+function buildMesaTotalVendor(rpcRows){
+  if(!rpcRows || !rpcRows.length) return null;
+  const cells = new Map();
+  rpcRows.forEach(r=>{
+    cells.set(r.ordem_bloco, {
+      meta: r.meta, real: r.real, percentual: r.percentual, necessidade_dia: r.necessidade_dia,
+      fat_total: r.fat_total, fat_heishop: r.fat_heishop, pedidos_heishop: r.pedidos_heishop,
+      dev_faturamento: r.dev_faturamento, dev_x_fat: r.dev_x_fat,
+    });
+  });
+  return { pdvs: rpcRows[0].pdvs, cells, numVendedores: rpcRows[0].num_vendedores };
+}
+
+function buildIndicadoresTable(supName, vendedores, colunas, isHeishopTab, compSupMap, comparacaoLabel, mesAtualLabel, compOrdemByKey, mesaTotalRow){
   const header = buildIndicTableHeader('Vendedor', colunas, isHeishopTab, comparacaoLabel, mesAtualLabel);
   const compVendMap = compSupMap ? compSupMap.get(supName) : null;
 
@@ -2196,6 +2213,16 @@ function buildIndicadoresTable(supName, vendedores, colunas, isHeishopTab, compS
     totalRow += '</tr>';
   }
 
+  // "Total da Mesa" — só existe quando veio o agregado do time (função do
+  // banco, só chamada pro vendedor logado — ver renderIndicadoresPage).
+  let mesaTotalRowHtml = '';
+  if(mesaTotalRow){
+    const numVendTxt = mesaTotalRow.numVendedores ? ' <span style="font-weight:400;opacity:.72;">· '+mesaTotalRow.numVendedores+' vendedores</span>' : '';
+    mesaTotalRowHtml = '<tr class="agg-total"><td class="name-col">Total da Mesa ('+supName+')'+numVendTxt+'</td><td class="num">'+fmtInt(mesaTotalRow.pdvs)+'</td>';
+    mesaTotalRowHtml += renderVendorRowCells(mesaTotalRow, null, colunas, comparacaoLabel, compOrdemByKey);
+    mesaTotalRowHtml += '</tr>';
+  }
+
   return `
   <div class="section-card">
     <div class="section-head" onclick="toggleSection(this)">
@@ -2207,7 +2234,7 @@ function buildIndicadoresTable(supName, vendedores, colunas, isHeishopTab, compS
       <div class="table-scroll">
         <table class="data">
           <thead>${header}</thead>
-          <tbody>${rows}${totalRow}</tbody>
+          <tbody>${rows}${totalRow}${mesaTotalRowHtml}</tbody>
         </table>
       </div>
     </div>
@@ -2326,6 +2353,10 @@ function computeEvolucaoIndicador(rows, supFilter, categoriasFiltro){
     // categoria é estável, então dá pra filtrar por nome direto em qualquer
     // mês sem precisar do de-para que a comparação de 2 meses usa.
     if(categoriasFiltro && categoriasFiltro.size && !categoriasFiltro.has(r.categoria)) return;
+    // HEISHOP tem linhas fora do padrão Meta/Real (fat_total/fat_heishop,
+    // dev_faturamento) — tipo_bloco diz isso. Ignora essas linhas aqui em vez
+    // de somar como 0 (senão a evolução ficava puxada pra baixo à toa).
+    if(r.tipo_bloco && r.tipo_bloco !== 'padrao') return;
     if(!byDate.has(r.data_referencia)) byDate.set(r.data_referencia, { meta: 0, real: 0 });
     const e = byDate.get(r.data_referencia);
     e.meta += Number(r.meta) || 0;
@@ -2378,26 +2409,25 @@ function renderEvolucaoPercentual(pontos){
     const cx = x(i).toFixed(1), cy = y(p.pct).toFixed(1);
     const cor = evoStatusColor(p.pct);
     const titulo = (fmtDataLonga(p.data) + ': ' + Math.round(p.pct) + '% (Real ' + fmtNum(p.real) + ' / Meta ' + fmtNum(p.meta) + ')').replace(/"/g,'&quot;');
+    // rótulo acima do ponto por padrão; se não coube (perto do topo do
+    // gráfico), desce pra baixo do ponto — nunca deixa cortar.
+    const temEspacoAcima = (y(p.pct) - padT) > 16;
+    const labelY = temEspacoAcima ? (y(p.pct)-11).toFixed(1) : (y(p.pct)+18).toFixed(1);
     // círculo invisível maior por baixo = área de toque/hover confortável;
     // o pontinho colorido visível (r=5) fica só decorativo, sem title próprio
     return `<circle cx="${cx}" cy="${cy}" r="12" fill="transparent" tabindex="0" role="img" aria-label="${titulo}"><title>${titulo}</title></circle>`
-      + `<circle cx="${cx}" cy="${cy}" r="5" fill="${cor}" stroke="var(--paper)" stroke-width="2" pointer-events="none"/>`;
+      + `<circle cx="${cx}" cy="${cy}" r="5" fill="${cor}" stroke="var(--paper)" stroke-width="2" pointer-events="none"/>`
+      + `<text x="${cx}" y="${labelY}" text-anchor="middle" font-size="10.5" font-weight="600" fill="var(--ink)" font-family="'IBM Plex Mono',monospace" pointer-events="none">${Math.round(p.pct)}%</text>`;
   }).join('');
 
   const xLabelsHtml = pontos.map((p,i)=>
     `<text x="${x(i).toFixed(1)}" y="${H-8}" text-anchor="middle" font-size="10" fill="var(--muted)" font-family="'IBM Plex Mono',monospace">${fmtDataCurta(p.data)}</text>`
   ).join('');
 
-  const ultimo = pontos[n-1];
-  const endLabelHtml = (ultimo && ultimo.pct!==null)
-    ? `<text x="${x(n-1).toFixed(1)}" y="${(y(ultimo.pct)-12).toFixed(1)}" text-anchor="end" font-size="12" font-weight="700" fill="var(--ink)" font-family="'IBM Plex Mono',monospace">${Math.round(ultimo.pct)}%</text>`
-    : '';
-
   return `<svg viewBox="0 0 ${W} ${H}" style="width:100%; height:auto; display:block;" role="img" aria-label="Evolução do percentual de atingimento">
     ${gridHtml}
     <path d="${pathD.trim()}" fill="none" stroke="var(--copper)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
     ${dotsHtml}
-    ${endLabelHtml}
     ${xLabelsHtml}
   </svg>`;
 }
@@ -2414,7 +2444,7 @@ function roundedTopBarPath(x0, yBase, yTop, bw, r){
 }
 
 function renderEvolucaoMetaReal(pontos){
-  const W = 640, H = 210, padL = 46, padR = 16, padT = 22, padB = 28;
+  const W = 640, H = 210, padL = 46, padR = 16, padT = 28, padB = 28;
   const plotW = W - padL - padR, plotH = H - padT - padB;
   const n = pontos.length;
   const maxVal = Math.max(1, ...pontos.map(p=>Math.max(p.meta,p.real))) * 1.15;
@@ -2442,8 +2472,16 @@ function renderEvolucaoMetaReal(pontos){
     const realPath = roundedTopBarPath(realX, yBase, y(p.real), barW, 4);
     const tituloMeta = (fmtDataLonga(p.data) + ' — Meta: ' + fmtNum(p.meta)).replace(/"/g,'&quot;');
     const tituloReal = (fmtDataLonga(p.data) + ' — Real: ' + fmtNum(p.real)).replace(/"/g,'&quot;');
-    if(metaPath) barsHtml += `<path d="${metaPath}" fill="var(--chart-meta)" tabindex="0" role="img" aria-label="${tituloMeta}"><title>${tituloMeta}</title></path>`;
-    if(realPath) barsHtml += `<path d="${realPath}" fill="var(--copper)" tabindex="0" role="img" aria-label="${tituloReal}"><title>${tituloReal}</title></path>`;
+    if(metaPath){
+      barsHtml += `<path d="${metaPath}" fill="var(--chart-meta)" tabindex="0" role="img" aria-label="${tituloMeta}"><title>${tituloMeta}</title></path>`;
+      const labelY = Math.max(padT-6, y(p.meta)-6).toFixed(1);
+      barsHtml += `<text x="${(metaX+barW/2).toFixed(1)}" y="${labelY}" text-anchor="middle" font-size="9.5" font-weight="600" fill="var(--ink)" font-family="'IBM Plex Mono',monospace" pointer-events="none">${fmtInt(p.meta)}</text>`;
+    }
+    if(realPath){
+      barsHtml += `<path d="${realPath}" fill="var(--copper)" tabindex="0" role="img" aria-label="${tituloReal}"><title>${tituloReal}</title></path>`;
+      const labelY = Math.max(padT-6, y(p.real)-6).toFixed(1);
+      barsHtml += `<text x="${(realX+barW/2).toFixed(1)}" y="${labelY}" text-anchor="middle" font-size="9.5" font-weight="600" fill="var(--ink)" font-family="'IBM Plex Mono',monospace" pointer-events="none">${fmtInt(p.real)}</text>`;
+    }
     xLabelsHtml += `<text x="${cx.toFixed(1)}" y="${H-8}" text-anchor="middle" font-size="10" fill="var(--muted)" font-family="'IBM Plex Mono',monospace">${fmtDataCurta(p.data)}</text>`;
   });
 
@@ -2626,6 +2664,23 @@ function renderIndicadoresPage(){
   const supsToShow = (INDICADORES_SUP_FILTER && supMap.has(INDICADORES_SUP_FILTER))
     ? [INDICADORES_SUP_FILTER] : supNames;
 
+  // Total da Mesa — só pro vendedor (admin/supervisor já veem o time inteiro
+  // linha a linha, não precisam de um agregado à parte). Busca sob demanda
+  // via função do banco (mesa não muda RLS nenhuma, só soma no servidor).
+  let mesaTotalRow = null, mesaTotalCarregando = false;
+  if(CURRENT_ROLE === 'vendedor'){
+    const cacheKey = activeKey + '|' + INDICADORES_DATE;
+    const cached = (typeof MESA_TOTAL_CACHE !== 'undefined') ? MESA_TOTAL_CACHE[cacheKey] : undefined;
+    if(cached === undefined){
+      mesaTotalCarregando = true;
+      if(typeof loadMesaTotal === 'function') loadMesaTotal(activeKey, INDICADORES_DATE);
+    } else if(cached === 'loading'){
+      mesaTotalCarregando = true;
+    } else {
+      mesaTotalRow = buildMesaTotalVendor(cached);
+    }
+  }
+
   // vendedores ficam na ordem em que vieram do banco (groupIndicadoresRows
   // preserva a ordem de chegada das linhas), que é a ordem da planilha —
   // não reordenar por nome aqui.
@@ -2635,7 +2690,8 @@ function renderIndicadoresPage(){
     let vendedores = [...supMap.get(supName).values()];
     if(term) vendedores = vendedores.filter(v=>v.vendedor.toLowerCase().includes(term));
     if(!vendedores.length) return;
-    html += buildIndicadoresTable(supName, vendedores, visibleColunas, isHeishopTab, compSupMap, comparacaoLabel, fmtMesAno(INDICADORES_DATE), compOrdemByKey);
+    html += buildIndicadoresTable(supName, vendedores, visibleColunas, isHeishopTab, compSupMap, comparacaoLabel, fmtMesAno(INDICADORES_DATE), compOrdemByKey, mesaTotalRow);
+    if(mesaTotalCarregando) html += '<div class="sup-sub" style="margin-top:-14px;">Calculando total da mesa…</div>';
     anyRendered = true;
   });
   if(!anyRendered) html += '<div class="sup-sub">Nenhum vendedor encontrado.</div>';

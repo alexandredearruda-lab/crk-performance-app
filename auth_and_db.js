@@ -12,6 +12,7 @@ let CURRENT_SUP_SHEET = null;     // preenchido para supervisor e vendedor
 let CURRENT_VENDEDOR_NOME = null; // preenchido só para vendedor
 let CURRENT_VENDEDOR_CODIGO = null; // preenchido só para vendedor (bate com clientes.vendedor_codigo)
 let CLIENTS = [];                 // lista de clientes sem comprar (já filtrada pelas permissões)
+let MESA_TOTAL_CACHE = {};        // "tabela|data_referencia" -> linhas agregadas do time (só pra vendedor), ou 'loading'
 function todayStr(){
   return new Date().toISOString().slice(0,10); // AAAA-MM-DD
 }
@@ -185,6 +186,8 @@ async function loadDataFromDB(){
     console.error(e);
   }
 
+  if(CURRENT_ROLE === 'vendedor') MESA_TOTAL_CACHE = {}; // dado muda com a semana/mês — não guarda cache velho entre logins
+
   try{
     const { data: metaRow } = await db.from('meta').select('*').eq('id', 1).maybeSingle();
     const { data: vsRows, error: e1 } = await db.from('vendor_snapshots').select('*');
@@ -274,6 +277,28 @@ function subscribeRealtime(){
     .on('postgres_changes', { event: '*', schema: 'public', table: 'heishop_indicadores' }, scheduleReload)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'clientes_sem_compra' }, scheduleReload)
     .subscribe();
+}
+
+/* =====================================================================
+   TOTAL DA MESA — só pro vendedor: soma do time da supervisora, calculada
+   no banco por função "security definer" (schema_mesa_total_vendedor.sql)
+   pra não expor o desempenho individual de cada colega. Busca sob demanda
+   (aba + data em que o vendedor está olhando) e guarda em cache — não
+   refaz a mesma busca de novo enquanto o usuário não trocar de aba/mês.
+===================================================================== */
+async function loadMesaTotal(tabela, dataReferencia){
+  const cacheKey = tabela + '|' + dataReferencia;
+  if(MESA_TOTAL_CACHE[cacheKey] !== undefined) return; // já carregado ou carregando
+  MESA_TOTAL_CACHE[cacheKey] = 'loading';
+  try{
+    const { data, error } = await db.rpc(tabela + '_indicadores_mesa_total', { p_data_referencia: dataReferencia });
+    if(error) throw error;
+    MESA_TOTAL_CACHE[cacheKey] = data || [];
+  }catch(e){
+    console.error(e);
+    MESA_TOTAL_CACHE[cacheKey] = []; // se a função ainda não existe no banco (schema_mesa_total_vendedor.sql não rodado), some silenciosamente
+  }
+  render();
 }
 
 /* =====================================================================
