@@ -1593,6 +1593,16 @@ function renderCommitmentsPage(){
     return '<div class="sup-header"><h2>Necessidade do Dia</h2></div><div class="sup-sub">Nenhum cliente importado ainda. Rode o script de importação (Base_Clientes.xlsx) e recarregue a página.</div>';
   }
 
+  // Vendedor só tem a si mesmo pra escolher (o RLS já limita CLIENTES_MASTER
+  // aos próprios clientes) — pula direto pro próprio dia, sem o passo de
+  // "escolher vendedor" nem o resumo agregado por vendedor/supervisor, que
+  // não fazem sentido quando a única pessoa visível é ele mesmo.
+  if(!NECESSIDADE_VENDEDOR && CURRENT_ROLE === 'vendedor'){
+    const primeiroSup = Array.from(vendedoresPorSup.values())[0];
+    const v = primeiroSup ? Array.from(primeiroSup.values())[0] : null;
+    if(v) NECESSIDADE_VENDEDOR = { codigo: v.codigo, nome: v.nome, supervisorNome: v.supervisorNome };
+  }
+
   const temCategorias = (typeof NECESSIDADE_CAT_SEMANA_ROWS !== 'undefined' ? NECESSIDADE_CAT_SEMANA_ROWS.length : 0) > 0;
   const tipoToggle = temCategorias ? `
     <div class="cat-filter" style="margin-top:10px;">
@@ -1601,10 +1611,10 @@ function renderCommitmentsPage(){
     </div>` : '';
   const header = `
     <div class="sup-header"><h2>Necessidade do Dia</h2></div>
-    <div class="sup-sub">Resumo da semana atual (segunda a sexta) — Desafio planejado x Real vendido, por vendedor e por supervisor.</div>
+    <div class="sup-sub">${CURRENT_ROLE === 'vendedor' ? 'Lance aqui o Desafio (planejado) e o Real (vendido) por cliente.' : 'Resumo da semana atual (segunda a sexta) — Desafio planejado x Real vendido, por vendedor e por supervisor.'}</div>
     ${tipoToggle}
   `;
-  const resumo = renderNecessidadeSemanaResumo();
+  const resumo = CURRENT_ROLE === 'vendedor' ? '' : renderNecessidadeSemanaResumo();
 
   if(!NECESSIDADE_VENDEDOR){
     let html = header + resumo + `
@@ -1635,10 +1645,10 @@ function renderCommitmentsPage(){
 
   // O resumo (soma por vendedor/supervisor/categoria) já foi visto na tela
   // de escolha do vendedor — não repete aqui, só o header + o detalhe.
+  const trocarVendedorLink = CURRENT_ROLE === 'vendedor' ? '' : '<a href="#" onclick="voltarVendedorNecessidade();return false;">← trocar vendedor</a>&nbsp;·&nbsp; ';
   let html = header + `
     <div class="sup-sub" style="margin-top:8px;">
-      <a href="#" onclick="voltarVendedorNecessidade();return false;">← trocar vendedor</a>
-      &nbsp;·&nbsp; <b>${vendedorNome}</b> (${supervisorNome})
+      ${trocarVendedorLink}<b>${vendedorNome}</b> (${supervisorNome})
     </div>
   `;
 
