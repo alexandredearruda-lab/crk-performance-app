@@ -1607,7 +1607,10 @@ function renderCommitmentsPage(){
     if(v) NECESSIDADE_VENDEDOR = { codigo: v.codigo, nome: v.nome, supervisorNome: v.supervisorNome };
   }
 
-  const temCategorias = (typeof NECESSIDADE_CAT_SEMANA_ROWS !== 'undefined' ? NECESSIDADE_CAT_SEMANA_ROWS.length : 0) > 0;
+  // Mostra o toggle sempre que existir o sistema de categorias (Indicadores
+  // importado), não só quando já tem lançamento — senão o botão sumia bem na
+  // hora que mais precisa dele: uma semana zerada, pronta pra começar.
+  const temCategorias = categoriasComunsVolumeCobertura().length > 0;
   const tipoToggle = temCategorias ? `
     <div class="cat-filter" style="margin-top:10px;">
       <button class="cat-chip ${NECESSIDADE_TIPO_RESUMO==='volume'?'active':''}" onclick="setNecessidadeTipoResumo('volume')">Volume</button>
