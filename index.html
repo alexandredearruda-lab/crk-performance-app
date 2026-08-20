@@ -1578,6 +1578,54 @@ function renderCommitmentsPage(){
     </div>
   `;
 
+  // Lançamentos da semana desse vendedor — cliente, dia, categoria (se
+  // houver) e valores, pra quem clicou no vendedor ver de cara o que foi
+  // passado, sem precisar entrar dia a dia e adivinhar qual categoria usar.
+  html += (function(){
+    const clientesByIdDet = new Map((typeof CLIENTES_MASTER !== 'undefined' ? CLIENTES_MASTER : []).map(c => [c.id, c]));
+    const fmtNumDet = v => Number(v).toLocaleString('pt-BR', {maximumFractionDigits:2});
+    const lancamentos = [];
+    (typeof NECESSIDADE_SEMANA_ROWS !== 'undefined' ? NECESSIDADE_SEMANA_ROWS : [])
+      .filter(r => r.vendedor_codigo === vendedorCodigo && (r.valor_desafio !== null && r.valor_desafio !== undefined || r.valor_real !== null && r.valor_real !== undefined))
+      .forEach(r=>{
+        const cli = clientesByIdDet.get(r.cliente_id);
+        lancamentos.push({ data: r.data, cliente: cli ? cli.fantasia : '—', categoria: null, desafio: r.valor_desafio, real: r.valor_real });
+      });
+    (typeof NECESSIDADE_CAT_SEMANA_ROWS !== 'undefined' ? NECESSIDADE_CAT_SEMANA_ROWS : [])
+      .filter(r => r.vendedor_codigo === vendedorCodigo && (r.valor_desafio !== null && r.valor_desafio !== undefined || r.valor_real !== null && r.valor_real !== undefined))
+      .forEach(r=>{
+        const cli = clientesByIdDet.get(r.cliente_id);
+        const tipoLabel = r.tipo_indicador === 'volume' ? 'Vol.' : 'Cob.';
+        lancamentos.push({ data: r.data, cliente: cli ? cli.fantasia : '—', categoria: prettyLabel(r.categoria) + ' (' + tipoLabel + ')', desafio: r.valor_desafio, real: r.valor_real });
+      });
+    if(!lancamentos.length){
+      return '<div class="sup-sub" style="margin-top:10px;">Nenhum lançamento desta semana ainda.</div>';
+    }
+    lancamentos.sort((a,b)=> a.data === b.data ? a.cliente.localeCompare(b.cliente) : a.data.localeCompare(b.data));
+    const rowsHtml = lancamentos.map(l=>{
+      const dataBRl = new Date(l.data + 'T00:00:00').toLocaleDateString('pt-BR');
+      const desafioTxt = (l.desafio !== null && l.desafio !== undefined) ? fmtNumDet(l.desafio) : '—';
+      const realTxt = (l.real !== null && l.real !== undefined) ? fmtNumDet(l.real) : '—';
+      return `<tr><td>${dataBRl}</td><td class="name-col">${l.cliente}</td><td>${l.categoria || 'Geral'}</td><td class="num">${desafioTxt}</td><td class="num">${realTxt}</td></tr>`;
+    }).join('');
+    return `
+    <div class="section-card">
+      <div class="section-head" onclick="toggleSection(this)">
+        <span class="chev">▾</span>
+        <h3>Lançamentos da semana</h3>
+        <span class="n">${lancamentos.length}</span>
+      </div>
+      <div class="section-body">
+        <div class="table-scroll">
+          <table class="data">
+            <thead><tr><th>Dia</th><th class="name-col">Cliente</th><th>Categoria</th><th style="min-width:90px;">Desafio</th><th style="min-width:90px;">Real</th></tr></thead>
+            <tbody>${rowsHtml}</tbody>
+          </table>
+        </div>
+      </div>
+    </div>`;
+  })();
+
   const dayChips = WEEKDAYS_NECESSIDADE.map(d =>
     `<button class="cat-chip ${d.key===NECESSIDADE_DIA?'active':''}" onclick="selecionarDiaNecessidade('${d.key}')">${d.label}</button>`
   ).join('');
