@@ -2309,10 +2309,15 @@ function buildClientesSemCompraTable(supName, clientes){
 // do mesmo de-para que a comparação de 2 meses já usa — não compensa pra um
 // gráfico de tendência agregada.
 // ---------------------------------------------------------------------------
-function computeEvolucaoIndicador(rows, supFilter){
+function computeEvolucaoIndicador(rows, supFilter, categoriasFiltro){
   const byDate = new Map(); // data_referencia -> {meta, real}
   rows.forEach(r=>{
     if(supFilter && r.supervisor !== supFilter) return;
+    // categoriasFiltro é um Set de nomes de categoria (r.categoria), não de
+    // ordem_bloco — ordem_bloco muda de posição mês a mês, mas o nome da
+    // categoria é estável, então dá pra filtrar por nome direto em qualquer
+    // mês sem precisar do de-para que a comparação de 2 meses usa.
+    if(categoriasFiltro && categoriasFiltro.size && !categoriasFiltro.has(r.categoria)) return;
     if(!byDate.has(r.data_referencia)) byDate.set(r.data_referencia, { meta: 0, real: 0 });
     const e = byDate.get(r.data_referencia);
     e.meta += Number(r.meta) || 0;
@@ -2441,9 +2446,10 @@ function renderEvolucaoMetaReal(pontos){
   </svg>`;
 }
 
-function renderEvolucaoMetas(tabLabel, rows, supFilter){
-  const pontos = computeEvolucaoIndicador(rows, supFilter);
+function renderEvolucaoMetas(tabLabel, rows, supFilter, categoriasFiltro, categoriasFiltroLabel){
+  const pontos = computeEvolucaoIndicador(rows, supFilter, categoriasFiltro);
   if(pontos.length < 2) return ''; // sem tendência pra mostrar com 0-1 ponto
+  const tituloTab = categoriasFiltroLabel ? (tabLabel + ' — ' + categoriasFiltroLabel) : tabLabel;
 
   const tabelaHtml = `<table class="data" style="margin-top:8px;">
     <thead><tr><th>Data</th><th style="min-width:90px;">Meta</th><th style="min-width:90px;">Real</th><th style="min-width:70px;">%</th></tr></thead>
@@ -2458,7 +2464,7 @@ function renderEvolucaoMetas(tabLabel, rows, supFilter){
   <div class="section-card">
     <div class="section-head" onclick="toggleSection(this)">
       <span class="chev">▾</span>
-      <h3>Evolução — ${tabLabel}</h3>
+      <h3>Evolução — ${tituloTab}</h3>
       <span class="n">${pontos.length} períodos${supFilter?' · '+supFilter:''}</span>
     </div>
     <div class="section-body">
@@ -2589,11 +2595,16 @@ function renderIndicadoresPage(){
   const supervisorRow = filtroRow('Supervisor', buildIndicSupervisorFilter(supNames));
   let html = '<div class="indic-filtros">'+mesRow+indicadorRow+categoriaRow+supervisorRow+'</div>';
 
-  html += renderEvolucaoMetas(tabDefs.find(t=>t.key===activeKey).label, tabDefs.find(t=>t.key===activeKey).rows, INDICADORES_SUP_FILTER);
-
   // seleção vazia = mostra todas as categorias; com 1+ selecionadas, mostra só essas
   const selectedCats = INDICADORES_CAT_SELECTED[activeKey] || new Set();
   const visibleColunas = selectedCats.size === 0 ? colunas : colunas.filter(c => selectedCats.has(c.ordemBloco));
+
+  // com categoria(s) selecionada(s), o gráfico de evolução soma só essas
+  // categorias (por nome — estável entre meses, ao contrário de ordem_bloco);
+  // sem seleção, soma tudo, igual sempre foi.
+  const categoriasFiltroNomes = selectedCats.size > 0 ? new Set(visibleColunas.map(c => c.categoria)) : null;
+  const categoriasFiltroLabel = categoriasFiltroNomes ? [...categoriasFiltroNomes].map(prettyLabel).join(', ') : null;
+  html += renderEvolucaoMetas(tabDefs.find(t=>t.key===activeKey).label, tabDefs.find(t=>t.key===activeKey).rows, INDICADORES_SUP_FILTER, categoriasFiltroNomes, categoriasFiltroLabel);
 
   html += buildIndicSummaryTable(supMap, visibleColunas, isHeishopTab, compSupMap, comparacaoLabel, fmtMesAno(INDICADORES_DATE), compOrdemByKey);
 
