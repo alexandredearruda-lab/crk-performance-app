@@ -19,7 +19,7 @@
 create or replace function volume_indicadores_mesa_total(p_data_referencia date)
 returns table(
   ordem_bloco smallint, categoria text, categoria_descricao text,
-  meta numeric, real numeric, percentual numeric, necessidade_dia numeric,
+  meta numeric, "real" numeric, percentual numeric, necessidade_dia numeric,
   pdvs bigint, num_vendedores bigint
 )
 language plpgsql
@@ -49,7 +49,7 @@ $$;
 create or replace function cobertura_indicadores_mesa_total(p_data_referencia date)
 returns table(
   ordem_bloco smallint, categoria text, categoria_descricao text,
-  meta numeric, real numeric, percentual numeric, necessidade_dia numeric,
+  meta numeric, "real" numeric, percentual numeric, necessidade_dia numeric,
   pdvs bigint, num_vendedores bigint
 )
 language plpgsql
@@ -85,7 +85,7 @@ $$;
 create or replace function heishop_indicadores_mesa_total(p_data_referencia date)
 returns table(
   ordem_bloco smallint, categoria text, categoria_descricao text, tipo_bloco text,
-  meta numeric, real numeric, percentual numeric, necessidade_dia numeric,
+  meta numeric, "real" numeric, percentual numeric, necessidade_dia numeric,
   fat_total numeric, fat_heishop numeric, pedidos_heishop bigint,
   dev_faturamento numeric, dev_x_fat numeric,
   pdvs bigint, num_vendedores bigint
