@@ -1418,17 +1418,39 @@ function renderIncentivoPage(){
 
 function renderNecessidadeSemanaResumo(){
   const rows = typeof NECESSIDADE_SEMANA_ROWS !== 'undefined' ? NECESSIDADE_SEMANA_ROWS : [];
+  const catRows = typeof NECESSIDADE_CAT_SEMANA_ROWS !== 'undefined' ? NECESSIDADE_CAT_SEMANA_ROWS : [];
   const clientesById = new Map((typeof CLIENTES_MASTER !== 'undefined' ? CLIENTES_MASTER : []).map(c => [c.id, c]));
-  const porSupervisor = new Map(); // supervisorNome -> Map(vendedorCodigo -> {nome, desafio, real})
+  const porSupervisor = new Map(); // supervisorNome -> Map(vendedorCodigo -> {nome, desafio, real, categorias: Map(categoria -> {volDesafio,volReal,covDesafio,covReal})})
+  const getEntry = (cli, vendedorCodigo) => {
+    if(!porSupervisor.has(cli.supervisor_nome)) porSupervisor.set(cli.supervisor_nome, new Map());
+    const vmap = porSupervisor.get(cli.supervisor_nome);
+    if(!vmap.has(vendedorCodigo)) vmap.set(vendedorCodigo, { nome: cli.vendedor_nome, desafio: 0, real: 0, categorias: new Map() });
+    return vmap.get(vendedorCodigo);
+  };
   rows.forEach(r=>{
     const cli = clientesById.get(r.cliente_id);
     if(!cli) return;
-    if(!porSupervisor.has(cli.supervisor_nome)) porSupervisor.set(cli.supervisor_nome, new Map());
-    const vmap = porSupervisor.get(cli.supervisor_nome);
-    if(!vmap.has(r.vendedor_codigo)) vmap.set(r.vendedor_codigo, { nome: cli.vendedor_nome, desafio: 0, real: 0 });
-    const entry = vmap.get(r.vendedor_codigo);
+    const entry = getEntry(cli, r.vendedor_codigo);
     entry.desafio += Number(r.valor_desafio) || 0;
     entry.real += Number(r.valor_real) || 0;
+  });
+  // desafios lançados com categoria (ex: "Economy") ficam numa tabela à
+  // parte (necessidade_dia_categoria) — mostrados aqui separado do
+  // Desafio/Real genérico, um bloco por categoria, pra não misturar
+  // métricas de naturezas diferentes (Volume x Cobertura) num total só.
+  catRows.forEach(r=>{
+    const cli = clientesById.get(r.cliente_id);
+    if(!cli) return;
+    const entry = getEntry(cli, r.vendedor_codigo);
+    if(!entry.categorias.has(r.categoria)) entry.categorias.set(r.categoria, { volDesafio: 0, volReal: 0, covDesafio: 0, covReal: 0 });
+    const c = entry.categorias.get(r.categoria);
+    if(r.tipo_indicador === 'volume'){
+      c.volDesafio += Number(r.valor_desafio) || 0;
+      c.volReal += Number(r.valor_real) || 0;
+    } else if(r.tipo_indicador === 'cobertura'){
+      c.covDesafio += Number(r.valor_desafio) || 0;
+      c.covReal += Number(r.valor_real) || 0;
+    }
   });
 
   if(porSupervisor.size === 0){
@@ -1441,12 +1463,46 @@ function renderNecessidadeSemanaResumo(){
   let html = '';
   Array.from(porSupervisor.entries()).sort((a,b)=> a[0].localeCompare(b[0])).forEach(([supNome, vmap])=>{
     let supDesafio = 0, supReal = 0;
+    const supCategorias = new Map(); // categoria -> {volDesafio,volReal,covDesafio,covReal}
     const vendorRows = Array.from(vmap.values()).sort((a,b)=> a.nome.localeCompare(b.nome)).map(v=>{
       supDesafio += v.desafio; supReal += v.real;
+      v.categorias.forEach((c, catNome)=>{
+        if(!supCategorias.has(catNome)) supCategorias.set(catNome, { volDesafio: 0, volReal: 0, covDesafio: 0, covReal: 0 });
+        const s = supCategorias.get(catNome);
+        s.volDesafio += c.volDesafio; s.volReal += c.volReal;
+        s.covDesafio += c.covDesafio; s.covReal += c.covReal;
+      });
       const pct = v.desafio > 0 ? Math.round((v.real / v.desafio) * 100) : null;
       return `<tr><td class="name-col">${v.nome}</td><td class="num">${fmtNum(v.desafio)}</td><td class="num">${fmtNum(v.real)}</td><td class="num ${pctClass(pct)}">${pct===null?'—':pct+'%'}</td></tr>`;
     }).join('');
     const supPct = supDesafio > 0 ? Math.round((supReal / supDesafio) * 100) : null;
+
+    let catHtml = '';
+    Array.from(supCategorias.keys()).sort().forEach(catNome=>{
+      const catVendorRows = Array.from(vmap.values())
+        .filter(v => v.categorias.has(catNome))
+        .sort((a,b)=> a.nome.localeCompare(b.nome))
+        .map(v=>{
+          const c = v.categorias.get(catNome);
+          return `<tr><td class="name-col">${v.nome}</td><td class="num">${fmtNum(c.volDesafio)}</td><td class="num">${fmtNum(c.volReal)}</td><td class="num">${fmtNum(c.covDesafio)}</td><td class="num">${fmtNum(c.covReal)}</td></tr>`;
+        }).join('');
+      const s = supCategorias.get(catNome);
+      catHtml += `
+        <div class="table-scroll" style="margin-top:10px;">
+          <table class="data">
+            <thead><tr>
+              <th class="name-col" style="min-width:170px;">${prettyLabel(catNome)}</th>
+              <th style="min-width:90px;">Vol. Desafio</th>
+              <th style="min-width:90px;">Vol. Real</th>
+              <th style="min-width:90px;">Cob. Desafio</th>
+              <th style="min-width:90px;">Cob. Real</th>
+            </tr></thead>
+            <tbody>${catVendorRows}
+              <tr class="agg-total"><td class="name-col">Total ${supNome}</td><td class="num">${fmtNum(s.volDesafio)}</td><td class="num">${fmtNum(s.volReal)}</td><td class="num">${fmtNum(s.covDesafio)}</td><td class="num">${fmtNum(s.covReal)}</td></tr>
+            </tbody>
+          </table>
+        </div>`;
+    });
 
     html += `
     <div class="section-card">
@@ -1469,6 +1525,7 @@ function renderNecessidadeSemanaResumo(){
             </tbody>
           </table>
         </div>
+        ${catHtml}
       </div>
     </div>`;
   });

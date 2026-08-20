@@ -21,6 +21,7 @@ let INCENTIVOS = [];               // prêmio/incentivo (aba "Painel Ganho")
 let CLIENTES_MASTER = [];          // base de clientes importada de Base_Clientes.xlsx
 let NECESSIDADE_DIA_ROWS = [];     // linhas de necessidade_dia do vendedor+dia selecionados no momento
 let NECESSIDADE_SEMANA_ROWS = [];  // linhas de necessidade_dia da semana atual inteira (Seg-Sex), pro resumo
+let NECESSIDADE_CAT_SEMANA_ROWS = []; // idem, de necessidade_dia_categoria (desafios lançados com categoria), pro resumo
 let NECESSIDADE_CAT_ROWS = [];     // linhas de necessidade_dia_categoria do vendedor+dia selecionados (todas as categorias)
 // Necessidade do Dia usa o nome curto do ERP (Base_Clientes.xlsx) pro
 // vendedor, diferente do nome completo em CURRENT_VENDEDOR_NOME (planilha
@@ -205,12 +206,14 @@ async function loadDataFromDB(){
       clienteRows = await fetchAllRows('clientes');
     }catch(e){ /* tabela pode não existir ainda — segue sem o recurso */ }
     let necessidadeSemanaRows = [];
+    let necessidadeCatSemanaRows = [];
     try{
       const monday = mondayOfCurrentWeek();
       const friday = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + 4);
       const mondayStr = monday.toISOString().slice(0,10);
       const fridayStr = friday.toISOString().slice(0,10);
       necessidadeSemanaRows = await fetchAllRows('necessidade_dia', q => q.gte('data', mondayStr).lte('data', fridayStr));
+      necessidadeCatSemanaRows = await fetchAllRows('necessidade_dia_categoria', q => q.gte('data', mondayStr).lte('data', fridayStr));
     }catch(e){ /* tabela pode não existir ainda — segue sem o recurso */ }
 
     const supervisors = reconstructSupervisors(vsRows || []);
@@ -237,6 +240,7 @@ async function loadDataFromDB(){
     INCENTIVOS = incentivoRows;
     CLIENTES_MASTER = clienteRows;
     NECESSIDADE_SEMANA_ROWS = necessidadeSemanaRows;
+    NECESSIDADE_CAT_SEMANA_ROWS = necessidadeCatSemanaRows;
     const SPECIAL_VIEWS = ['COMMITMENTS','INCENTIVO','INDICADORES'];
     if(!ACTIVE_SUP || (!SPECIAL_VIEWS.includes(ACTIVE_SUP) && !DATA.supervisors.find(s => s.sheetName === ACTIVE_SUP))){
       ACTIVE_SUP = DATA.supervisors[0].sheetName;
@@ -371,6 +375,11 @@ async function saveNecessidadeCategoriaField(clienteId, vendedorCodigo, supervis
     if(error) throw error;
     if(existing) existing[field] = num;
     else NECESSIDADE_CAT_ROWS.push({ vendedor_codigo: vendedorCodigo, cliente_id: clienteId, data: dataStr, categoria, tipo_indicador: tipoIndicador, valor_desafio: field==='valor_desafio'?num:null, valor_real: field==='valor_real'?num:null });
+    // espelha a mudança no cache da semana (resumo), pra atualizar na hora sem esperar o polling
+    const existingSemana = NECESSIDADE_CAT_SEMANA_ROWS.find(r => r.cliente_id === clienteId && r.vendedor_codigo === vendedorCodigo
+      && r.data === dataStr && r.categoria === categoria && r.tipo_indicador === tipoIndicador);
+    if(existingSemana) existingSemana[field] = num;
+    else NECESSIDADE_CAT_SEMANA_ROWS.push({ vendedor_codigo: vendedorCodigo, cliente_id: clienteId, data: dataStr, categoria, tipo_indicador: tipoIndicador, valor_desafio: field==='valor_desafio'?num:null, valor_real: field==='valor_real'?num:null });
     render();
   }catch(e){
     console.error(e);
