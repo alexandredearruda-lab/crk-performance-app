@@ -3087,6 +3087,25 @@ function selectRemunDate(d){ REMUN_DATE = d; render(); }
 function selectRemunCanal(c){ REMUN_CANAL = c; render(); }
 function selectRemunSup(sup){ REMUN_SUP_FILTER = sup; render(); }
 
+// A recarga de reforço (a cada 25s) chama render() de novo, reconstruindo o
+// HTML inteiro — sem guardar o que estava aberto numa variável (não só na
+// classe CSS do elemento), todo card/"Ver categorias" que a pessoa tinha
+// aberto voltava a fechar sozinho a cada recarga.
+let REMUN_OPEN_CARDS = new Set();    // chaves "canal — papel" abertas
+let REMUN_OPEN_PESSOAS = new Set();  // chaves "canal|setor|pessoa" com categorias abertas
+function toggleRemunCard(headEl, chave){
+  if(REMUN_OPEN_CARDS.has(chave)) REMUN_OPEN_CARDS.delete(chave); else REMUN_OPEN_CARDS.add(chave);
+  headEl.classList.toggle('collapsed');
+  headEl.nextElementSibling.classList.toggle('collapsed');
+}
+function toggleRemunPessoa(linkEl, chave){
+  const estavaAberta = REMUN_OPEN_PESSOAS.has(chave);
+  if(estavaAberta) REMUN_OPEN_PESSOAS.delete(chave); else REMUN_OPEN_PESSOAS.add(chave);
+  const d = linkEl.closest('tr').nextElementSibling;
+  d.style.display = estavaAberta ? 'none' : 'table-row';
+  linkEl.textContent = estavaAberta ? 'Ver categorias' : 'Esconder';
+}
+
 function buildRemunSupervisorFilter(supNames){
   let chips = '<button class="cat-chip '+(!REMUN_SUP_FILTER?'active':'')+'" onclick="selectRemunSup(null)">Todos os supervisores</button>';
   supNames.forEach(sup=>{
@@ -3117,6 +3136,8 @@ function buildRemunTable(titulo, pessoas, categoriaPorPessoa){
     const chave = p.canal+'|'+p.setor+'|'+p.pessoa;
     const cats = categoriaPorPessoa.get(chave) || [];
     const catHtml = buildRemunCategoriaTable(cats);
+    const chaveEscapada = chave.replace(/'/g,"\\'");
+    const pessoaAberta = REMUN_OPEN_PESSOAS.has(chave);
     return `<tr>
         <td class="name-col">${p.pessoa}</td>
         <td>${p.supervisor || '—'}</td>
@@ -3127,19 +3148,21 @@ function buildRemunTable(titulo, pessoas, categoriaPorPessoa){
         <td class="num">${fmtMoney2(p.produtividade)}</td>
         <td class="num" style="font-weight:600;">${fmtMoney2(p.total)}</td>
         <td class="num">${fmtMoney2(p.pedagio)}</td>
-        <td><a href="#" onclick="var d=this.closest('tr').nextElementSibling; var h=(d.style.display==='none'); d.style.display=h?'table-row':'none'; this.textContent=h?'Esconder':'Ver categorias'; return false;" style="font-size:12px; white-space:nowrap;">Ver categorias</a></td>
+        <td><a href="#" onclick="toggleRemunPessoa(this, '${chaveEscapada}'); return false;" style="font-size:12px; white-space:nowrap;">${pessoaAberta?'Esconder':'Ver categorias'}</a></td>
       </tr>
-      <tr style="display:none;"><td colspan="10" style="background:var(--paper-2); padding:0 12px;">${catHtml}</td></tr>`;
+      <tr style="display:${pessoaAberta?'table-row':'none'};"><td colspan="10" style="background:var(--paper-2); padding:0 12px;">${catHtml}</td></tr>`;
   }).join('');
 
+  const cardAberto = REMUN_OPEN_CARDS.has(titulo);
+  const tituloEscapado = titulo.replace(/'/g,"\\'");
   return `
   <div class="section-card">
-    <div class="section-head collapsed" onclick="toggleSection(this)">
+    <div class="section-head ${cardAberto?'':'collapsed'}" onclick="toggleRemunCard(this, '${tituloEscapado}')">
       <span class="chev">▾</span>
       <h3>${titulo}</h3>
       <span class="n">${pessoas.length} pessoa(s) · total ${fmtMoney2(totalGeral)}</span>
     </div>
-    <div class="section-body collapsed">
+    <div class="section-body ${cardAberto?'':'collapsed'}">
       <div class="table-scroll">
         <table class="data">
           <thead><tr>
