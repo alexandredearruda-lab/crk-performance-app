@@ -1227,6 +1227,8 @@ function dateForWeekday(diaKey){
 let NECESSIDADE_VENDEDOR = null; // { codigo, nome, supervisorNome }
 let NECESSIDADE_DIA = null;      // 'SEG'..'SEX'
 let NECESSIDADE_CATEGORIAS_SELECIONADAS = new Set(); // categorias marcadas pro desafio do dia (multi-seleção)
+let NECESSIDADE_TIPO_RESUMO = 'volume'; // 'volume' | 'cobertura' — filtro do resumo semanal e da lista de lançamentos
+function setNecessidadeTipoResumo(tipo){ NECESSIDADE_TIPO_RESUMO = tipo; render(); }
 
 // Lista de categorias do seletor: as que existem em Volume E Cobertura ao
 // mesmo tempo (senão um dos dois blocos de 4 campos ficaria sempre vazio),
@@ -1420,11 +1422,14 @@ function renderNecessidadeSemanaResumo(){
   const rows = typeof NECESSIDADE_SEMANA_ROWS !== 'undefined' ? NECESSIDADE_SEMANA_ROWS : [];
   const catRows = typeof NECESSIDADE_CAT_SEMANA_ROWS !== 'undefined' ? NECESSIDADE_CAT_SEMANA_ROWS : [];
   const clientesById = new Map((typeof CLIENTES_MASTER !== 'undefined' ? CLIENTES_MASTER : []).map(c => [c.id, c]));
-  const porSupervisor = new Map(); // supervisorNome -> Map(vendedorCodigo -> {nome, desafio, real, categorias: Map(categoria -> {volDesafio,volReal,covDesafio,covReal})})
+  const tipoResumo = (typeof NECESSIDADE_TIPO_RESUMO !== 'undefined' ? NECESSIDADE_TIPO_RESUMO : 'volume');
+  const isPendente = r => (r.valor_desafio !== null && r.valor_desafio !== undefined) && (r.valor_real === null || r.valor_real === undefined);
+
+  const porSupervisor = new Map(); // supervisorNome -> Map(vendedorCodigo -> {nome, desafio, real, pendentes, categorias: Map(categoria -> {volDesafio,volReal,volPend,covDesafio,covReal,covPend})})
   const getEntry = (cli, vendedorCodigo) => {
     if(!porSupervisor.has(cli.supervisor_nome)) porSupervisor.set(cli.supervisor_nome, new Map());
     const vmap = porSupervisor.get(cli.supervisor_nome);
-    if(!vmap.has(vendedorCodigo)) vmap.set(vendedorCodigo, { nome: cli.vendedor_nome, desafio: 0, real: 0, categorias: new Map() });
+    if(!vmap.has(vendedorCodigo)) vmap.set(vendedorCodigo, { nome: cli.vendedor_nome, desafio: 0, real: 0, pendentes: 0, categorias: new Map() });
     return vmap.get(vendedorCodigo);
   };
   rows.forEach(r=>{
@@ -1433,6 +1438,7 @@ function renderNecessidadeSemanaResumo(){
     const entry = getEntry(cli, r.vendedor_codigo);
     entry.desafio += Number(r.valor_desafio) || 0;
     entry.real += Number(r.valor_real) || 0;
+    if(isPendente(r)) entry.pendentes++;
   });
   // desafios lançados com categoria (ex: "Economy") ficam numa tabela à
   // parte (necessidade_dia_categoria) — mostrados aqui separado do
@@ -1442,14 +1448,16 @@ function renderNecessidadeSemanaResumo(){
     const cli = clientesById.get(r.cliente_id);
     if(!cli) return;
     const entry = getEntry(cli, r.vendedor_codigo);
-    if(!entry.categorias.has(r.categoria)) entry.categorias.set(r.categoria, { volDesafio: 0, volReal: 0, covDesafio: 0, covReal: 0 });
+    if(!entry.categorias.has(r.categoria)) entry.categorias.set(r.categoria, { volDesafio: 0, volReal: 0, volPend: 0, covDesafio: 0, covReal: 0, covPend: 0 });
     const c = entry.categorias.get(r.categoria);
     if(r.tipo_indicador === 'volume'){
       c.volDesafio += Number(r.valor_desafio) || 0;
       c.volReal += Number(r.valor_real) || 0;
+      if(isPendente(r)) c.volPend++;
     } else if(r.tipo_indicador === 'cobertura'){
       c.covDesafio += Number(r.valor_desafio) || 0;
       c.covReal += Number(r.valor_real) || 0;
+      if(isPendente(r)) c.covPend++;
     }
   });
 
@@ -1459,47 +1467,101 @@ function renderNecessidadeSemanaResumo(){
 
   const fmtNum = v => v.toLocaleString('pt-BR', {maximumFractionDigits:2});
   const pctClass = pct => pct===null ? '' : (pct>=90 ? 'pct-good' : pct>=60 ? 'pct-warn' : 'pct-bad');
+  const pendCell = n => n > 0 ? `<span class="pct-bad" title="${n} cliente(s) com Desafio lançado e Real ainda não preenchido">${n} pend.</span>` : '—';
+  // linha genérica (Desafio/Real/%/Pend.) — reaproveitada pro total geral e pra cada supervisor
+  const genericRow = (nome, desafio, real, pendentes, isTotal) => {
+    const pct = desafio > 0 ? Math.round((real / desafio) * 100) : null;
+    return `<tr${isTotal?' class="agg-total"':''}><td class="name-col">${nome}</td><td class="num">${fmtNum(desafio)}</td><td class="num">${fmtNum(real)}</td><td class="num ${pctClass(pct)}">${pct===null?'—':pct+'%'}</td><td class="num">${pendCell(pendentes)}</td></tr>`;
+  };
+  // linha de uma categoria, já filtrada pro tipo (volume/cobertura) selecionado no toggle
+  const catRow = (nome, c, isTotal) => {
+    const desafio = tipoResumo === 'volume' ? c.volDesafio : c.covDesafio;
+    const real = tipoResumo === 'volume' ? c.volReal : c.covReal;
+    const pend = tipoResumo === 'volume' ? c.volPend : c.covPend;
+    const pct = desafio > 0 ? Math.round((real / desafio) * 100) : null;
+    return `<tr${isTotal?' class="agg-total"':''}><td class="name-col">${nome}</td><td class="num">${fmtNum(desafio)}</td><td class="num">${fmtNum(real)}</td><td class="num ${pctClass(pct)}">${pct===null?'—':pct+'%'}</td><td class="num">${pendCell(pend)}</td></tr>`;
+  };
+  const tableHead = firstColLabel => `<thead><tr>
+      <th class="name-col" style="min-width:170px;">${firstColLabel}</th>
+      <th style="min-width:90px;">Desafio</th>
+      <th style="min-width:90px;">Real</th>
+      <th style="min-width:70px;">%</th>
+      <th style="min-width:90px;">Pendências</th>
+    </tr></thead>`;
 
-  let html = '';
-  Array.from(porSupervisor.entries()).sort((a,b)=> a[0].localeCompare(b[0])).forEach(([supNome, vmap])=>{
-    let supDesafio = 0, supReal = 0;
-    const supCategorias = new Map(); // categoria -> {volDesafio,volReal,covDesafio,covReal}
-    const vendorRows = Array.from(vmap.values()).sort((a,b)=> a.nome.localeCompare(b.nome)).map(v=>{
-      supDesafio += v.desafio; supReal += v.real;
+  // ---- Total Geral (Empresa) — soma de todos os supervisores visíveis pro usuário logado ----
+  let totalDesafio = 0, totalReal = 0, totalPendentes = 0, totalVendedores = 0;
+  const totalCategorias = new Map(); // categoria -> {volDesafio,volReal,volPend,covDesafio,covReal,covPend}
+  porSupervisor.forEach(vmap=>{
+    totalVendedores += vmap.size;
+    vmap.forEach(v=>{
+      totalDesafio += v.desafio; totalReal += v.real; totalPendentes += v.pendentes;
       v.categorias.forEach((c, catNome)=>{
-        if(!supCategorias.has(catNome)) supCategorias.set(catNome, { volDesafio: 0, volReal: 0, covDesafio: 0, covReal: 0 });
-        const s = supCategorias.get(catNome);
-        s.volDesafio += c.volDesafio; s.volReal += c.volReal;
-        s.covDesafio += c.covDesafio; s.covReal += c.covReal;
+        if(!totalCategorias.has(catNome)) totalCategorias.set(catNome, { volDesafio: 0, volReal: 0, volPend: 0, covDesafio: 0, covReal: 0, covPend: 0 });
+        const t = totalCategorias.get(catNome);
+        t.volDesafio += c.volDesafio; t.volReal += c.volReal; t.volPend += c.volPend;
+        t.covDesafio += c.covDesafio; t.covReal += c.covReal; t.covPend += c.covPend;
       });
-      const pct = v.desafio > 0 ? Math.round((v.real / v.desafio) * 100) : null;
-      return `<tr><td class="name-col">${v.nome}</td><td class="num">${fmtNum(v.desafio)}</td><td class="num">${fmtNum(v.real)}</td><td class="num ${pctClass(pct)}">${pct===null?'—':pct+'%'}</td></tr>`;
+    });
+  });
+  let totalCatHtml = '';
+  Array.from(totalCategorias.keys()).sort().forEach(catNome=>{
+    totalCatHtml += `
+        <div class="table-scroll" style="margin-top:10px;">
+          <table class="data">
+            ${tableHead(prettyLabel(catNome) + ' (' + (tipoResumo==='volume'?'Volume':'Cobertura') + ')')}
+            <tbody>${catRow('Total Empresa', totalCategorias.get(catNome), true)}</tbody>
+          </table>
+        </div>`;
+  });
+  const totalGeralHtml = `
+    <div class="section-card" style="border-color:var(--malt-900);">
+      <div class="section-head" style="cursor:default;">
+        <h3>Total Geral (Empresa)</h3>
+        <span class="n">${porSupervisor.size} supervisores · ${totalVendedores} vendedores · desafio ${fmtNum(totalDesafio)} · real ${fmtNum(totalReal)}</span>
+      </div>
+      <div class="section-body">
+        <div class="table-scroll">
+          <table class="data">
+            ${tableHead('Empresa')}
+            <tbody>${genericRow('Total Empresa', totalDesafio, totalReal, totalPendentes, true)}</tbody>
+          </table>
+        </div>
+        ${totalCatHtml}
+      </div>
+    </div>`;
+
+  // só mostra o card de total geral quando ele soma algo além do que já
+  // aparece sozinho na seção do supervisor (>1 supervisor, ou alguma categoria)
+  const mostraTotalGeral = porSupervisor.size > 1 || totalCategorias.size > 0;
+  let html = mostraTotalGeral ? totalGeralHtml : '';
+
+  Array.from(porSupervisor.entries()).sort((a,b)=> a[0].localeCompare(b[0])).forEach(([supNome, vmap])=>{
+    let supDesafio = 0, supReal = 0, supPendentes = 0;
+    const supCategorias = new Map(); // categoria -> {volDesafio,volReal,volPend,covDesafio,covReal,covPend}
+    const vendorRows = Array.from(vmap.values()).sort((a,b)=> a.nome.localeCompare(b.nome)).map(v=>{
+      supDesafio += v.desafio; supReal += v.real; supPendentes += v.pendentes;
+      v.categorias.forEach((c, catNome)=>{
+        if(!supCategorias.has(catNome)) supCategorias.set(catNome, { volDesafio: 0, volReal: 0, volPend: 0, covDesafio: 0, covReal: 0, covPend: 0 });
+        const s = supCategorias.get(catNome);
+        s.volDesafio += c.volDesafio; s.volReal += c.volReal; s.volPend += c.volPend;
+        s.covDesafio += c.covDesafio; s.covReal += c.covReal; s.covPend += c.covPend;
+      });
+      return genericRow(v.nome, v.desafio, v.real, v.pendentes, false);
     }).join('');
-    const supPct = supDesafio > 0 ? Math.round((supReal / supDesafio) * 100) : null;
 
     let catHtml = '';
     Array.from(supCategorias.keys()).sort().forEach(catNome=>{
       const catVendorRows = Array.from(vmap.values())
         .filter(v => v.categorias.has(catNome))
         .sort((a,b)=> a.nome.localeCompare(b.nome))
-        .map(v=>{
-          const c = v.categorias.get(catNome);
-          return `<tr><td class="name-col">${v.nome}</td><td class="num">${fmtNum(c.volDesafio)}</td><td class="num">${fmtNum(c.volReal)}</td><td class="num">${fmtNum(c.covDesafio)}</td><td class="num">${fmtNum(c.covReal)}</td></tr>`;
-        }).join('');
-      const s = supCategorias.get(catNome);
+        .map(v => catRow(v.nome, v.categorias.get(catNome), false))
+        .join('');
       catHtml += `
         <div class="table-scroll" style="margin-top:10px;">
           <table class="data">
-            <thead><tr>
-              <th class="name-col" style="min-width:170px;">${prettyLabel(catNome)}</th>
-              <th style="min-width:90px;">Vol. Desafio</th>
-              <th style="min-width:90px;">Vol. Real</th>
-              <th style="min-width:90px;">Cob. Desafio</th>
-              <th style="min-width:90px;">Cob. Real</th>
-            </tr></thead>
-            <tbody>${catVendorRows}
-              <tr class="agg-total"><td class="name-col">Total ${supNome}</td><td class="num">${fmtNum(s.volDesafio)}</td><td class="num">${fmtNum(s.volReal)}</td><td class="num">${fmtNum(s.covDesafio)}</td><td class="num">${fmtNum(s.covReal)}</td></tr>
-            </tbody>
+            ${tableHead(prettyLabel(catNome) + ' (' + (tipoResumo==='volume'?'Volume':'Cobertura') + ')')}
+            <tbody>${catVendorRows}${catRow('Total ' + supNome, supCategorias.get(catNome), true)}</tbody>
           </table>
         </div>`;
     });
@@ -1509,20 +1571,13 @@ function renderNecessidadeSemanaResumo(){
       <div class="section-head collapsed" onclick="toggleSection(this)">
         <span class="chev">▾</span>
         <h3>${supNome}</h3>
-        <span class="n">${vmap.size} vendedores · desafio ${fmtNum(supDesafio)} · real ${fmtNum(supReal)}</span>
+        <span class="n">${vmap.size} vendedores · desafio ${fmtNum(supDesafio)} · real ${fmtNum(supReal)}${supPendentes>0?' · '+supPendentes+' pend.':''}</span>
       </div>
       <div class="section-body collapsed">
         <div class="table-scroll">
           <table class="data">
-            <thead><tr>
-              <th class="name-col" style="min-width:170px;">Vendedor</th>
-              <th style="min-width:100px;">Desafio</th>
-              <th style="min-width:100px;">Real</th>
-              <th style="min-width:70px;">%</th>
-            </tr></thead>
-            <tbody>${vendorRows}
-              <tr class="agg-total"><td class="name-col">Total ${supNome}</td><td class="num">${fmtNum(supDesafio)}</td><td class="num">${fmtNum(supReal)}</td><td class="num">${supPct===null?'—':supPct+'%'}</td></tr>
-            </tbody>
+            ${tableHead('Vendedor')}
+            <tbody>${vendorRows}${genericRow('Total ' + supNome, supDesafio, supReal, supPendentes, true)}</tbody>
           </table>
         </div>
         ${catHtml}
@@ -1538,9 +1593,16 @@ function renderCommitmentsPage(){
     return '<div class="sup-header"><h2>Necessidade do Dia</h2></div><div class="sup-sub">Nenhum cliente importado ainda. Rode o script de importação (Base_Clientes.xlsx) e recarregue a página.</div>';
   }
 
+  const temCategorias = (typeof NECESSIDADE_CAT_SEMANA_ROWS !== 'undefined' ? NECESSIDADE_CAT_SEMANA_ROWS.length : 0) > 0;
+  const tipoToggle = temCategorias ? `
+    <div class="cat-filter" style="margin-top:10px;">
+      <button class="cat-chip ${NECESSIDADE_TIPO_RESUMO==='volume'?'active':''}" onclick="setNecessidadeTipoResumo('volume')">Volume</button>
+      <button class="cat-chip ${NECESSIDADE_TIPO_RESUMO==='cobertura'?'active':''}" onclick="setNecessidadeTipoResumo('cobertura')">Cobertura</button>
+    </div>` : '';
   const header = `
     <div class="sup-header"><h2>Necessidade do Dia</h2></div>
     <div class="sup-sub">Resumo da semana atual (segunda a sexta) — Desafio planejado x Real vendido, por vendedor e por supervisor.</div>
+    ${tipoToggle}
   `;
   const resumo = renderNecessidadeSemanaResumo();
 
@@ -1593,21 +1655,24 @@ function renderCommitmentsPage(){
         const cli = clientesByIdDet.get(r.cliente_id);
         lancamentos.push({ data: r.data, cliente: cli ? cli.fantasia : '—', categoria: null, desafio: r.valor_desafio, real: r.valor_real });
       });
+    const tipoAtual = (typeof NECESSIDADE_TIPO_RESUMO !== 'undefined' ? NECESSIDADE_TIPO_RESUMO : 'volume');
     (typeof NECESSIDADE_CAT_SEMANA_ROWS !== 'undefined' ? NECESSIDADE_CAT_SEMANA_ROWS : [])
-      .filter(r => r.vendedor_codigo === vendedorCodigo && (r.valor_desafio !== null && r.valor_desafio !== undefined || r.valor_real !== null && r.valor_real !== undefined))
+      .filter(r => r.vendedor_codigo === vendedorCodigo && r.tipo_indicador === tipoAtual
+        && (r.valor_desafio !== null && r.valor_desafio !== undefined || r.valor_real !== null && r.valor_real !== undefined))
       .forEach(r=>{
         const cli = clientesByIdDet.get(r.cliente_id);
-        const tipoLabel = r.tipo_indicador === 'volume' ? 'Vol.' : 'Cob.';
-        lancamentos.push({ data: r.data, cliente: cli ? cli.fantasia : '—', categoria: prettyLabel(r.categoria) + ' (' + tipoLabel + ')', desafio: r.valor_desafio, real: r.valor_real });
+        lancamentos.push({ data: r.data, cliente: cli ? cli.fantasia : '—', categoria: prettyLabel(r.categoria), desafio: r.valor_desafio, real: r.valor_real });
       });
     if(!lancamentos.length){
       return '<div class="sup-sub" style="margin-top:10px;">Nenhum lançamento desta semana ainda.</div>';
     }
     lancamentos.sort((a,b)=> a.data === b.data ? a.cliente.localeCompare(b.cliente) : a.data.localeCompare(b.data));
+    const pendentesCount = lancamentos.filter(l => (l.desafio !== null && l.desafio !== undefined) && (l.real === null || l.real === undefined)).length;
     const rowsHtml = lancamentos.map(l=>{
       const dataBRl = new Date(l.data + 'T00:00:00').toLocaleDateString('pt-BR');
+      const pendente = (l.desafio !== null && l.desafio !== undefined) && (l.real === null || l.real === undefined);
       const desafioTxt = (l.desafio !== null && l.desafio !== undefined) ? fmtNumDet(l.desafio) : '—';
-      const realTxt = (l.real !== null && l.real !== undefined) ? fmtNumDet(l.real) : '—';
+      const realTxt = pendente ? '<span class="pct-bad" title="Ainda sem Real lançado">pendente</span>' : ((l.real !== null && l.real !== undefined) ? fmtNumDet(l.real) : '—');
       return `<tr><td>${dataBRl}</td><td class="name-col">${l.cliente}</td><td>${l.categoria || 'Geral'}</td><td class="num">${desafioTxt}</td><td class="num">${realTxt}</td></tr>`;
     }).join('');
     return `
@@ -1615,7 +1680,7 @@ function renderCommitmentsPage(){
       <div class="section-head" onclick="toggleSection(this)">
         <span class="chev">▾</span>
         <h3>Lançamentos da semana</h3>
-        <span class="n">${lancamentos.length}</span>
+        <span class="n">${lancamentos.length}${pendentesCount>0?' · '+pendentesCount+' pend.':''}</span>
       </div>
       <div class="section-body">
         <div class="table-scroll">
