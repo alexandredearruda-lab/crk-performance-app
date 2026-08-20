@@ -516,6 +516,17 @@ let VOLFUT_DATE = null;          // data_referencia selecionada
 let VOLFUT_SUBTAB = 'resumo';    // 'resumo' | 'amstel'
 let VOLFUT_SUP_FILTER = null;    // estado próprio, não compartilha com INDICADORES_SUP_FILTER
 
+/* =====================================================================
+   REMUNERAÇÃO — aba nova, só admin/pode_ver_remuneracao (RLS), lê de
+   remuneracao_resumo / remuneracao_categoria (scripts/import_remuneracao.js).
+   Dado de salário/comissão — acesso controlado por flag própria, separada de
+   pode_ver_executivo. REMUNERACAO_DATA é carregado em auth_and_db.js.
+===================================================================== */
+let REMUNERACAO_DATA = null; // { resumo:[...], categoria:[...], datasDisponiveis:[...] }
+let REMUN_DATE = null;       // data_referencia selecionada
+let REMUN_CANAL = null;      // null = todos os canais, ou 'AS' | 'MF'
+let REMUN_SUP_FILTER = null; // estado próprio
+
 // Ordem dos supervisores como aparecem na planilha Fundamentos (não alfabética).
 // Supervisor desconhecido (roster mudou) cai no fim, em ordem alfabética entre si.
 const ORDEM_SUPERVISORES = ['JUBERTO', 'JULIANA', 'FLAVIA', 'FELIPE', 'LUCIO'];
@@ -2733,13 +2744,21 @@ function renderSidebar(){
   const inActive = ACTIVE_SUP === 'INCENTIVO' ? 'active' : '';
   const idActive = ACTIVE_SUP === 'INDICADORES' ? 'active' : '';
   const vfActive = ACTIVE_SUP === 'VOLUMES_FUTUROS' ? 'active' : '';
-  // Só admin/pode_ver_executivo vê esse botão — a tabela em si já é protegida
-  // por RLS, isso aqui é só pra não mostrar um item de menu que dá vazio.
+  const rmActive = ACTIVE_SUP === 'REMUNERACAO' ? 'active' : '';
+  // Só admin/pode_ver_executivo (ou pode_ver_remuneracao) vê o botão
+  // correspondente — a tabela em si já é protegida por RLS, isso aqui é só
+  // pra não mostrar um item de menu que dá vazio.
   const podeVerExecutivo = CURRENT_ROLE === 'admin' || (typeof CURRENT_PODE_VER_EXECUTIVO !== 'undefined' && CURRENT_PODE_VER_EXECUTIVO);
+  const podeVerRemuneracao = CURRENT_ROLE === 'admin' || (typeof CURRENT_PODE_VER_REMUNERACAO !== 'undefined' && CURRENT_PODE_VER_REMUNERACAO);
   const volFutBtn = podeVerExecutivo ? `
     <button class="sup-btn ${vfActive}" onclick="selectSupervisor('VOLUMES_FUTUROS')">
       <span class="sup-avatar">📈</span>
       <span>Volumes Futuros</span>
+    </button>` : '';
+  const remunBtn = podeVerRemuneracao ? `
+    <button class="sup-btn ${rmActive}" onclick="selectSupervisor('REMUNERACAO')">
+      <span class="sup-avatar">💰</span>
+      <span>Remuneração</span>
     </button>` : '';
   fixed.innerHTML = `<button class="sup-btn ${cmActive}" onclick="selectSupervisor('COMMITMENTS')">
       <span class="sup-avatar">☑</span>
@@ -2754,6 +2773,7 @@ function renderSidebar(){
       <span>Indicadores</span>
     </button>
     ${volFutBtn}
+    ${remunBtn}
     <div style="border-bottom:1px solid rgba(233,223,205,0.12); margin:8px 2px 4px;"></div>`;
 
   // A lista de supervisores por vendor_snapshots (upload manual antigo) foi
@@ -3056,6 +3076,146 @@ function renderVolumesFuturosPage(){
   return html;
 }
 
+/* =====================================================================
+   REMUNERAÇÃO — dado de salário/comissão, o mais sensível do painel. Agrupa
+   por canal (AS/MF) e papel (Vendedor/Supervisor-GV), uma tabela por grupo
+   com o resumo (Fixo/Comissão/Produtividade/Total/Pedágio) e um link "Ver
+   categorias" por pessoa que revela o detalhamento (~25-30 categorias de
+   performance, cada uma com % Real e R$) sem poluir a tabela principal.
+===================================================================== */
+function selectRemunDate(d){ REMUN_DATE = d; render(); }
+function selectRemunCanal(c){ REMUN_CANAL = c; render(); }
+function selectRemunSup(sup){ REMUN_SUP_FILTER = sup; render(); }
+
+function buildRemunSupervisorFilter(supNames){
+  let chips = '<button class="cat-chip '+(!REMUN_SUP_FILTER?'active':'')+'" onclick="selectRemunSup(null)">Todos os supervisores</button>';
+  supNames.forEach(sup=>{
+    const active = REMUN_SUP_FILTER === sup;
+    chips += '<button class="cat-chip '+(active?'active':'')+'" onclick="selectRemunSup(\''+sup.replace(/'/g,"\\'")+'\')">'+sup+'</button>';
+  });
+  return chips;
+}
+
+function fmtMoney2(v){
+  return (v === null || v === undefined) ? '—' : 'R$ '+Number(v).toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2});
+}
+function fmtPctRemun(v){
+  return (v === null || v === undefined) ? '—' : (Number(v)*100).toLocaleString('pt-BR', {maximumFractionDigits:1})+'%';
+}
+
+function buildRemunCategoriaTable(catRows){
+  if(!catRows.length) return '<div class="sup-sub" style="padding:8px 12px;">Sem detalhamento por categoria.</div>';
+  const rows = [...catRows].sort((a,b)=>a.ordem_bloco-b.ordem_bloco).map(c=>
+    `<tr><td class="name-col">${prettyLabel(c.categoria)}</td><td class="num">${fmtPctRemun(c.real_pct)}</td><td class="num">${fmtMoney2(c.valor_r)}</td></tr>`
+  ).join('');
+  return `<table class="data" style="margin:8px 0;"><thead><tr><th class="name-col">Categoria</th><th style="min-width:70px;">% Real</th><th style="min-width:100px;">R$</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+function buildRemunTable(titulo, pessoas, categoriaPorPessoa){
+  const totalGeral = pessoas.reduce((s,p)=>s+(p.total||0),0);
+  const rows = pessoas.map(p=>{
+    const chave = p.canal+'|'+p.setor+'|'+p.pessoa;
+    const cats = categoriaPorPessoa.get(chave) || [];
+    const catHtml = buildRemunCategoriaTable(cats);
+    return `<tr>
+        <td class="name-col">${p.pessoa}</td>
+        <td>${p.supervisor || '—'}</td>
+        <td class="num">${p.dias_uteis ?? '—'}</td>
+        <td class="num">${p.dias_trab ?? '—'}</td>
+        <td class="num">${fmtMoney2(p.fixo)}</td>
+        <td class="num">${fmtMoney2(p.comissao)}</td>
+        <td class="num">${fmtMoney2(p.produtividade)}</td>
+        <td class="num" style="font-weight:600;">${fmtMoney2(p.total)}</td>
+        <td class="num">${fmtMoney2(p.pedagio)}</td>
+        <td><a href="#" onclick="var d=this.closest('tr').nextElementSibling; var h=(d.style.display==='none'); d.style.display=h?'table-row':'none'; this.textContent=h?'Esconder':'Ver categorias'; return false;" style="font-size:12px; white-space:nowrap;">Ver categorias</a></td>
+      </tr>
+      <tr style="display:none;"><td colspan="10" style="background:var(--paper-2); padding:0 12px;">${catHtml}</td></tr>`;
+  }).join('');
+
+  return `
+  <div class="section-card">
+    <div class="section-head collapsed" onclick="toggleSection(this)">
+      <span class="chev">▾</span>
+      <h3>${titulo}</h3>
+      <span class="n">${pessoas.length} pessoa(s) · total ${fmtMoney2(totalGeral)}</span>
+    </div>
+    <div class="section-body collapsed">
+      <div class="table-scroll">
+        <table class="data">
+          <thead><tr>
+            <th class="name-col" style="min-width:170px;">Pessoa</th><th>Supervisor</th><th>Dias Úteis</th><th>Dias Trab.</th>
+            <th style="min-width:90px;">Fixo</th><th style="min-width:90px;">Comissão</th><th style="min-width:110px;">Produtividade</th>
+            <th style="min-width:100px;">Total</th><th style="min-width:90px;">Pedágio</th><th></th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderRemuneracaoPage(){
+  if(!REMUNERACAO_DATA){
+    return '<div class="section-card"><div class="section-body" style="padding:20px;">Carregando…</div></div>';
+  }
+  const { resumo, categoria, datasDisponiveis } = REMUNERACAO_DATA;
+  if(!datasDisponiveis.length){
+    return '<div class="sup-header"><h2>Remuneração</h2></div><div class="sup-sub">Nenhum dado importado ainda. Rode <code>scripts/import_remuneracao.js --commit</code> e recarregue a página.</div>';
+  }
+  if(!REMUN_DATE || !datasDisponiveis.includes(REMUN_DATE)) REMUN_DATE = datasDisponiveis[0];
+
+  const fmtData = d => new Date(d+'T00:00:00').toLocaleDateString('pt-BR');
+  const dateChips = datasDisponiveis.map(d =>
+    `<button class="cat-chip ${d===REMUN_DATE?'active':''}" onclick="selectRemunDate('${d}')">${fmtData(d)}</button>`
+  ).join('');
+
+  const rowsForDateTodosCanais = resumo.filter(r => r.data_referencia === REMUN_DATE);
+  const canais = [...new Set(rowsForDateTodosCanais.map(r=>r.canal))].sort();
+  const canalChips = '<button class="cat-chip '+(!REMUN_CANAL?'active':'')+'" onclick="selectRemunCanal(null)">Todos</button>'
+    + canais.map(c => `<button class="cat-chip ${REMUN_CANAL===c?'active':''}" onclick="selectRemunCanal('${c}')">${c}</button>`).join('');
+
+  const header = `
+    <div class="sup-header"><h2>Remuneração</h2></div>
+    <div class="sup-sub">Fixo, Comissão, Produtividade, Total e Pedágio por pessoa — dado de folha de pagamento, acesso restrito.</div>
+  `;
+
+  const rowsForDate = REMUN_CANAL ? rowsForDateTodosCanais.filter(r=>r.canal===REMUN_CANAL) : rowsForDateTodosCanais;
+  const supNames = [...new Set(rowsForDate.map(r=>r.supervisor).filter(Boolean))].sort(compararSupervisores);
+
+  let html = header + '<div class="indic-filtros">'
+    + filtroRow('Data', dateChips) + filtroRow('Canal', canalChips) + filtroRow('Supervisor', buildRemunSupervisorFilter(supNames))
+    + '</div>';
+
+  if(!rowsForDate.length){
+    return html + '<div class="sup-sub">Sem dados dessa data/canal.</div>';
+  }
+
+  const catRowsForDate = categoria.filter(c => c.data_referencia === REMUN_DATE);
+  const categoriaPorPessoa = new Map();
+  catRowsForDate.forEach(c=>{
+    const chave = c.canal+'|'+c.setor+'|'+c.pessoa;
+    if(!categoriaPorPessoa.has(chave)) categoriaPorPessoa.set(chave, []);
+    categoriaPorPessoa.get(chave).push(c);
+  });
+
+  const pessoasFiltradas = REMUN_SUP_FILTER ? rowsForDate.filter(r=>r.supervisor===REMUN_SUP_FILTER) : rowsForDate;
+
+  const porCanalEPapel = new Map(); // "canal|papel" -> pessoas[]
+  pessoasFiltradas.forEach(p=>{
+    const chave = p.canal+'|'+p.papel;
+    if(!porCanalEPapel.has(chave)) porCanalEPapel.set(chave, []);
+    porCanalEPapel.get(chave).push(p);
+  });
+
+  [...porCanalEPapel.keys()].sort().forEach(chave=>{
+    const [canal, papel] = chave.split('|');
+    const pessoas = [...porCanalEPapel.get(chave)].sort((a,b)=>a.pessoa.localeCompare(b.pessoa));
+    html += buildRemunTable(canal + ' — ' + papel, pessoas, categoriaPorPessoa);
+  });
+
+  return html;
+}
+
 function render(){
   renderTopMeta();
   renderSidebar();
@@ -3075,6 +3235,13 @@ function render(){
     view.style.display = 'block';
     noMatch.style.display = 'none';
     view.innerHTML = renderVolumesFuturosPage();
+    return;
+  }
+  if(ACTIVE_SUP === 'REMUNERACAO'){
+    empty.style.display = 'none';
+    view.style.display = 'block';
+    noMatch.style.display = 'none';
+    view.innerHTML = renderRemuneracaoPage();
     return;
   }
 

@@ -12,6 +12,7 @@ let CURRENT_SUP_SHEET = null;     // preenchido para supervisor e vendedor
 let CURRENT_VENDEDOR_NOME = null; // preenchido só para vendedor
 let CURRENT_VENDEDOR_CODIGO = null; // preenchido só para vendedor (bate com clientes.vendedor_codigo)
 let CURRENT_PODE_VER_EXECUTIVO = false; // libera a aba "Volumes Futuros" pra quem não é admin (schema_volumes_futuros.sql)
+let CURRENT_PODE_VER_REMUNERACAO = false; // libera a aba "Remuneração" pra quem não é admin (schema_remuneracao.sql) — flag própria, separada de pode_ver_executivo
 let CLIENTS = [];                 // lista de clientes sem comprar (já filtrada pelas permissões)
 let MESA_TOTAL_CACHE = {};        // "tabela|data_referencia" -> linhas agregadas do time (só pra vendedor), ou 'loading'
 function todayStr(){
@@ -114,6 +115,7 @@ async function onLoggedIn(user){
   CURRENT_VENDEDOR_NOME = profile.vendedor_nome;
   CURRENT_VENDEDOR_CODIGO = profile.vendedor_codigo;
   CURRENT_PODE_VER_EXECUTIVO = !!profile.pode_ver_executivo;
+  CURRENT_PODE_VER_REMUNERACAO = !!profile.pode_ver_remuneracao;
 
   const roleLabel = { admin:'administrador', supervisor:'supervisor', vendedor:'vendedor' }[CURRENT_ROLE] || CURRENT_ROLE;
 
@@ -197,6 +199,26 @@ async function loadDataFromDB(){
     if(!VOLUMES_FUTUROS_DATA) VOLUMES_FUTUROS_DATA = { resumo:[], amstel:[], datasDisponiveis:[] };
   }
 
+  // Remuneração (schema_remuneracao.sql) — dado de salário/comissão, acesso
+  // ainda mais restrito (pode_ver_remuneracao é flag própria, separada de
+  // pode_ver_executivo). Igual os outros: vem vazio sem erro pra quem não
+  // tem permissão.
+  try{
+    const orderById = q => q.order('id', { ascending: true });
+    const [remunResumoRows, remunCatRows] = await Promise.all([
+      fetchAllRows('remuneracao_resumo', orderById),
+      fetchAllRows('remuneracao_categoria', orderById),
+    ]);
+    const datasDisponiveis = [...new Set([...remunResumoRows, ...remunCatRows].map(r => r.data_referencia))].sort().reverse();
+    REMUNERACAO_DATA = { resumo: remunResumoRows, categoria: remunCatRows, datasDisponiveis };
+    if(!REMUN_DATE || !datasDisponiveis.includes(REMUN_DATE)){
+      REMUN_DATE = datasDisponiveis[0] || null;
+    }
+  }catch(e){
+    console.error(e);
+    if(!REMUNERACAO_DATA) REMUNERACAO_DATA = { resumo:[], categoria:[], datasDisponiveis:[] };
+  }
+
   // Clientes sem compra é opcional de propósito: se a tabela ainda não existe
   // (schema_clientes_sem_compra.sql não rodado ainda), não pode derrubar o
   // resto dos Indicadores — só essa aba específica fica vazia até rodar o SQL.
@@ -265,7 +287,7 @@ async function loadDataFromDB(){
     CLIENTES_MASTER = clienteRows;
     NECESSIDADE_SEMANA_ROWS = necessidadeSemanaRows;
     NECESSIDADE_CAT_SEMANA_ROWS = necessidadeCatSemanaRows;
-    const SPECIAL_VIEWS = ['COMMITMENTS','INCENTIVO','INDICADORES','VOLUMES_FUTUROS'];
+    const SPECIAL_VIEWS = ['COMMITMENTS','INCENTIVO','INDICADORES','VOLUMES_FUTUROS','REMUNERACAO'];
     if(!ACTIVE_SUP || (!SPECIAL_VIEWS.includes(ACTIVE_SUP) && !DATA.supervisors.find(s => s.sheetName === ACTIVE_SUP))){
       ACTIVE_SUP = DATA.supervisors[0].sheetName;
     }
