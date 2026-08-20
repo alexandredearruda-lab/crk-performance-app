@@ -11,6 +11,7 @@ let CURRENT_ROLE = null;          // 'admin' | 'supervisor' | 'vendedor'
 let CURRENT_SUP_SHEET = null;     // preenchido para supervisor e vendedor
 let CURRENT_VENDEDOR_NOME = null; // preenchido só para vendedor
 let CURRENT_VENDEDOR_CODIGO = null; // preenchido só para vendedor (bate com clientes.vendedor_codigo)
+let CURRENT_PODE_VER_EXECUTIVO = false; // libera a aba "Volumes Futuros" pra quem não é admin (schema_volumes_futuros.sql)
 let CLIENTS = [];                 // lista de clientes sem comprar (já filtrada pelas permissões)
 let MESA_TOTAL_CACHE = {};        // "tabela|data_referencia" -> linhas agregadas do time (só pra vendedor), ou 'loading'
 function todayStr(){
@@ -112,6 +113,7 @@ async function onLoggedIn(user){
   CURRENT_SUP_SHEET = profile.supervisor_sheet_name;
   CURRENT_VENDEDOR_NOME = profile.vendedor_nome;
   CURRENT_VENDEDOR_CODIGO = profile.vendedor_codigo;
+  CURRENT_PODE_VER_EXECUTIVO = !!profile.pode_ver_executivo;
 
   const roleLabel = { admin:'administrador', supervisor:'supervisor', vendedor:'vendedor' }[CURRENT_ROLE] || CURRENT_ROLE;
 
@@ -174,6 +176,25 @@ async function loadDataFromDB(){
   }catch(e){
     console.error(e);
     if(!INDICADORES_DATA) INDICADORES_DATA = { volume:[], cobertura:[], heishop:[], clientesSemCompra:[], datasDisponiveis:[] };
+  }
+
+  // Volumes Futuros (schema_volumes_futuros.sql) — só admin/quem tem
+  // pode_ver_executivo enxerga algo aqui (RLS); pros demais vem vazio, sem
+  // erro. Independente do resto, igual Indicadores.
+  try{
+    const orderById = q => q.order('id', { ascending: true });
+    const [volFutRows, amstelRows] = await Promise.all([
+      fetchAllRows('volumes_futuros_indicadores', orderById),
+      fetchAllRows('amstel_estrategico', orderById),
+    ]);
+    const datasDisponiveis = [...new Set([...volFutRows, ...amstelRows].map(r => r.data_referencia))].sort().reverse();
+    VOLUMES_FUTUROS_DATA = { resumo: volFutRows, amstel: amstelRows, datasDisponiveis };
+    if(!VOLFUT_DATE || !datasDisponiveis.includes(VOLFUT_DATE)){
+      VOLFUT_DATE = datasDisponiveis[0] || null;
+    }
+  }catch(e){
+    console.error(e);
+    if(!VOLUMES_FUTUROS_DATA) VOLUMES_FUTUROS_DATA = { resumo:[], amstel:[], datasDisponiveis:[] };
   }
 
   // Clientes sem compra é opcional de propósito: se a tabela ainda não existe

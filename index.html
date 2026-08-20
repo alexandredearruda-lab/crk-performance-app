@@ -505,6 +505,17 @@ let INDICADORES_DATE = null;   // data_referencia selecionada
 let INDICADORES_DATE_COMPARACAO = null; // data_referencia a comparar (null = sem comparação)
 let INDICADORES_SUBTAB = 'volume'; // 'volume' | 'cobertura' | 'heishop'
 let INDICADORES_SUP_FILTER = null; // null = todos os supervisores, ou o nome de um só
+
+/* =====================================================================
+   VOLUMES FUTUROS — aba nova, só admin/pode_ver_executivo (RLS), lê de
+   volumes_futuros_indicadores / amstel_estrategico (scripts/import_volumes_futuros.js).
+   VOLUMES_FUTUROS_DATA é carregado em auth_and_db.js.
+===================================================================== */
+let VOLUMES_FUTUROS_DATA = null; // { resumo:[...], amstel:[...], datasDisponiveis:[...] }
+let VOLFUT_DATE = null;          // data_referencia selecionada
+let VOLFUT_SUBTAB = 'resumo';    // 'resumo' | 'amstel'
+let VOLFUT_SUP_FILTER = null;    // estado próprio, não compartilha com INDICADORES_SUP_FILTER
+
 // Ordem dos supervisores como aparecem na planilha Fundamentos (não alfabética).
 // Supervisor desconhecido (roster mudou) cai no fim, em ordem alfabética entre si.
 const ORDEM_SUPERVISORES = ['JUBERTO', 'JULIANA', 'FLAVIA', 'FELIPE', 'LUCIO'];
@@ -2721,6 +2732,15 @@ function renderSidebar(){
   const cmActive = ACTIVE_SUP === 'COMMITMENTS' ? 'active' : '';
   const inActive = ACTIVE_SUP === 'INCENTIVO' ? 'active' : '';
   const idActive = ACTIVE_SUP === 'INDICADORES' ? 'active' : '';
+  const vfActive = ACTIVE_SUP === 'VOLUMES_FUTUROS' ? 'active' : '';
+  // Só admin/pode_ver_executivo vê esse botão — a tabela em si já é protegida
+  // por RLS, isso aqui é só pra não mostrar um item de menu que dá vazio.
+  const podeVerExecutivo = CURRENT_ROLE === 'admin' || (typeof CURRENT_PODE_VER_EXECUTIVO !== 'undefined' && CURRENT_PODE_VER_EXECUTIVO);
+  const volFutBtn = podeVerExecutivo ? `
+    <button class="sup-btn ${vfActive}" onclick="selectSupervisor('VOLUMES_FUTUROS')">
+      <span class="sup-avatar">📈</span>
+      <span>Volumes Futuros</span>
+    </button>` : '';
   fixed.innerHTML = `<button class="sup-btn ${cmActive}" onclick="selectSupervisor('COMMITMENTS')">
       <span class="sup-avatar">☑</span>
       <span>Necessidade do Dia</span>
@@ -2733,6 +2753,7 @@ function renderSidebar(){
       <span class="sup-avatar">▤</span>
       <span>Indicadores</span>
     </button>
+    ${volFutBtn}
     <div style="border-bottom:1px solid rgba(233,223,205,0.12); margin:8px 2px 4px;"></div>`;
 
   // A lista de supervisores por vendor_snapshots (upload manual antigo) foi
@@ -2896,6 +2917,145 @@ function buildClientTable(clients){
   </div>`;
 }
 
+/* =====================================================================
+   VOLUMES FUTUROS — 2 sub-abas: "Resumo por Vendedor" (mesmo formato
+   vendedor x categoria de Indicadores, reaproveita toda a infraestrutura de
+   lá — groupIndicadoresRows/buildIndicSummaryTable/buildIndicadoresTable já
+   funcionam porque volumes_futuros_indicadores tem exatamente as mesmas
+   colunas que volume_indicadores/cobertura_indicadores) e "40 PDVs Amstel"
+   (checklist por cliente, tabela própria — formato bem diferente).
+===================================================================== */
+function selectVolFutDate(d){ VOLFUT_DATE = d; render(); }
+function selectVolFutSubtab(tab){ VOLFUT_SUBTAB = tab; render(); }
+function selectVolFutSup(sup){ VOLFUT_SUP_FILTER = sup; render(); }
+
+// Estado próprio (não reaproveita buildIndicSupervisorFilter/INDICADORES_SUP_FILTER)
+// pra não misturar o filtro dessa aba com o da aba Indicadores.
+function buildVolFutSupervisorFilter(supNames){
+  let chips = '<button class="cat-chip '+(!VOLFUT_SUP_FILTER?'active':'')+'" onclick="selectVolFutSup(null)">Todos os supervisores</button>';
+  supNames.forEach(sup=>{
+    const active = VOLFUT_SUP_FILTER === sup;
+    chips += '<button class="cat-chip '+(active?'active':'')+'" onclick="selectVolFutSup(\''+sup.replace(/'/g,"\\'")+'\')">'+sup+'</button>';
+  });
+  return chips;
+}
+
+function buildAmstelTable(supName, clientes){
+  const badge = v => v === 1 ? '<span class="pct-good">✓</span>' : (v === 0 ? '<span class="pct-bad">✗</span>' : '—');
+  const rows = clientes.map(c => `<tr>
+      <td class="name-col">${c.fantasia}</td>
+      <td>${c.cidade || '—'}</td>
+      <td>${c.canal || '—'}</td>
+      <td>${c.matriz_nivel || '—'}</td>
+      <td>${c.vendedor_nome || '—'}</td>
+      <td class="num">${badge(c.cob_spin)}</td>
+      <td class="num">${badge(c.cob_craft)}</td>
+      <td class="num">${badge(c.cob_fys_itubaina)}</td>
+      <td>${c.geladeira_chopeira || '—'}</td>
+      <td>${c.cardapio || '—'}</td>
+      <td>${c.uniforme || '—'}</td>
+      <td>${c.fachada_execucao || '—'}</td>
+      <td>${c.contrato_acordo || '—'}</td>
+    </tr>`).join('');
+
+  return `
+  <div class="section-card">
+    <div class="section-head" onclick="toggleSection(this)">
+      <span class="chev">▾</span>
+      <h3>${supName}</h3>
+      <span class="n">${clientes.length} PDVs</span>
+    </div>
+    <div class="section-body">
+      <div class="table-scroll">
+        <table class="data">
+          <thead><tr>
+            <th class="name-col">Cliente</th><th>Cidade</th><th>Canal</th><th>Matriz</th><th>Vendedor</th>
+            <th>Cob. SPIN</th><th>Cob. Craft</th><th>Cob. FYS/Itub.</th>
+            <th>Geladeira/Chopeira</th><th>Cardápio</th><th>Uniforme</th><th>Fachada</th><th>Contrato</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderVolumesFuturosPage(){
+  if(!VOLUMES_FUTUROS_DATA){
+    return '<div class="section-card"><div class="section-body" style="padding:20px;">Carregando…</div></div>';
+  }
+  const { resumo, amstel, datasDisponiveis } = VOLUMES_FUTUROS_DATA;
+  if(!datasDisponiveis.length){
+    return '<div class="sup-header"><h2>Volumes Futuros</h2></div><div class="sup-sub">Nenhum dado importado ainda. Rode <code>scripts/import_volumes_futuros.js --commit</code> e recarregue a página.</div>';
+  }
+  if(!VOLFUT_DATE || !datasDisponiveis.includes(VOLFUT_DATE)) VOLFUT_DATE = datasDisponiveis[0];
+
+  const fmtData = d => new Date(d+'T00:00:00').toLocaleDateString('pt-BR');
+  const dateChips = datasDisponiveis.map(d =>
+    `<button class="cat-chip ${d===VOLFUT_DATE?'active':''}" onclick="selectVolFutDate('${d}')">${fmtData(d)}</button>`
+  ).join('');
+  const amstelCount = amstel.filter(a=>a.data_referencia===VOLFUT_DATE).length;
+  const tabChips = `
+    <button class="cat-chip ${VOLFUT_SUBTAB==='resumo'?'active':''}" onclick="selectVolFutSubtab('resumo')">Resumo por Vendedor</button>
+    <button class="cat-chip ${VOLFUT_SUBTAB==='amstel'?'active':''}" onclick="selectVolFutSubtab('amstel')">40 PDVs Amstel (${amstelCount})</button>
+  `;
+
+  const header = `
+    <div class="sup-header"><h2>Volumes Futuros</h2></div>
+    <div class="sup-sub">Acompanhamento executivo — Cobertura SPIN, Volume Craft+SPIN e Volume NAB, e o checklist dos PDVs estratégicos Amstel.</div>
+  `;
+
+  if(VOLFUT_SUBTAB === 'amstel'){
+    const rowsForDate = amstel.filter(r => r.data_referencia === VOLFUT_DATE);
+    const supNames = [...new Set(rowsForDate.map(r=>r.supervisor_nome).filter(Boolean))].sort(compararSupervisores);
+    let html = header + '<div class="indic-filtros">'
+      + filtroRow('Data', dateChips) + filtroRow('Aba', tabChips) + filtroRow('Supervisor', buildVolFutSupervisorFilter(supNames))
+      + '</div>';
+
+    if(!rowsForDate.length){
+      return html + '<div class="sup-sub">Sem dados dessa data.</div>';
+    }
+
+    const conta = campo => rowsForDate.filter(r => r[campo] === 1).length;
+    html += `<div class="sup-sub" style="margin-bottom:16px;">
+      Cobertura: <b>${conta('cob_spin')}/${rowsForDate.length}</b> SPIN ·
+      <b>${conta('cob_craft')}/${rowsForDate.length}</b> Craft ·
+      <b>${conta('cob_fys_itubaina')}/${rowsForDate.length}</b> FYS/Itubaina
+    </div>`;
+
+    const supsToShow = (VOLFUT_SUP_FILTER && supNames.includes(VOLFUT_SUP_FILTER)) ? [VOLFUT_SUP_FILTER] : supNames;
+    supsToShow.forEach(supName=>{
+      const clientes = rowsForDate.filter(r => r.supervisor_nome === supName);
+      if(clientes.length) html += buildAmstelTable(supName, clientes);
+    });
+    const semSupervisor = rowsForDate.filter(r => !r.supervisor_nome);
+    if(semSupervisor.length && !VOLFUT_SUP_FILTER) html += buildAmstelTable('(sem supervisor identificado)', semSupervisor);
+    return html;
+  }
+
+  // sub-aba "resumo" — mesmo motor da aba Indicadores (Volume/Cobertura)
+  const rowsForDate = resumo.filter(r => r.data_referencia === VOLFUT_DATE);
+  const { supMap, colunas } = groupIndicadoresRows(rowsForDate);
+  const supNames = [...supMap.keys()].sort(compararSupervisores);
+
+  let html = header + '<div class="indic-filtros">'
+    + filtroRow('Data', dateChips) + filtroRow('Aba', tabChips) + filtroRow('Supervisor', buildVolFutSupervisorFilter(supNames))
+    + '</div>';
+
+  if(!rowsForDate.length){
+    return html + '<div class="sup-sub">Sem dados dessa data.</div>';
+  }
+
+  html += buildIndicSummaryTable(supMap, colunas, false, null, null, fmtData(VOLFUT_DATE), null);
+
+  const supsToShow = (VOLFUT_SUP_FILTER && supMap.has(VOLFUT_SUP_FILTER)) ? [VOLFUT_SUP_FILTER] : supNames;
+  supsToShow.forEach(supName=>{
+    const vendedores = [...supMap.get(supName).values()];
+    if(vendedores.length) html += buildIndicadoresTable(supName, vendedores, colunas, false, null, null, fmtData(VOLFUT_DATE), null);
+  });
+  return html;
+}
+
 function render(){
   renderTopMeta();
   renderSidebar();
@@ -2908,6 +3068,13 @@ function render(){
     view.style.display = 'block';
     noMatch.style.display = 'none';
     view.innerHTML = renderIndicadoresPage();
+    return;
+  }
+  if(ACTIVE_SUP === 'VOLUMES_FUTUROS'){
+    empty.style.display = 'none';
+    view.style.display = 'block';
+    noMatch.style.display = 'none';
+    view.innerHTML = renderVolumesFuturosPage();
     return;
   }
 
