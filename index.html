@@ -1506,12 +1506,12 @@ function renderNecessidadeSemanaResumo(){
 
     html += `
     <div class="section-card">
-      <div class="section-head" onclick="toggleSection(this)">
+      <div class="section-head collapsed" onclick="toggleSection(this)">
         <span class="chev">▾</span>
         <h3>${supNome}</h3>
         <span class="n">${vmap.size} vendedores · desafio ${fmtNum(supDesafio)} · real ${fmtNum(supReal)}</span>
       </div>
-      <div class="section-body">
+      <div class="section-body collapsed">
         <div class="table-scroll">
           <table class="data">
             <thead><tr>
@@ -1571,8 +1571,10 @@ function renderCommitmentsPage(){
   const { codigo: vendedorCodigo, nome: vendedorNome, supervisorNome } = NECESSIDADE_VENDEDOR;
   const editable = (typeof canEditNecessidadeDia === 'function') && canEditNecessidadeDia(supervisorNome, vendedorCodigo);
 
-  let html = header + resumo + `
-    <div class="sup-sub" style="margin-top:20px;">
+  // O resumo (soma por vendedor/supervisor/categoria) já foi visto na tela
+  // de escolha do vendedor — não repete aqui, só o header + o detalhe.
+  let html = header + `
+    <div class="sup-sub" style="margin-top:8px;">
       <a href="#" onclick="voltarVendedorNecessidade();return false;">← trocar vendedor</a>
       &nbsp;·&nbsp; <b>${vendedorNome}</b> (${supervisorNome})
     </div>
