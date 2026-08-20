@@ -1512,7 +1512,7 @@ function renderCommitmentsPage(){
   }
 
   const { codigo: vendedorCodigo, nome: vendedorNome, supervisorNome } = NECESSIDADE_VENDEDOR;
-  const editable = (typeof canEditNecessidade === 'function') && canEditNecessidade(supervisorNome, vendedorNome);
+  const editable = (typeof canEditNecessidadeDia === 'function') && canEditNecessidadeDia(supervisorNome, vendedorCodigo);
 
   let html = header + resumo + `
     <div class="sup-sub" style="margin-top:20px;">

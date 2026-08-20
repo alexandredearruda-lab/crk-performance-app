@@ -10,6 +10,7 @@ let CURRENT_USER = null;
 let CURRENT_ROLE = null;          // 'admin' | 'supervisor' | 'vendedor'
 let CURRENT_SUP_SHEET = null;     // preenchido para supervisor e vendedor
 let CURRENT_VENDEDOR_NOME = null; // preenchido só para vendedor
+let CURRENT_VENDEDOR_CODIGO = null; // preenchido só para vendedor (bate com clientes.vendedor_codigo)
 let CLIENTS = [];                 // lista de clientes sem comprar (já filtrada pelas permissões)
 function todayStr(){
   return new Date().toISOString().slice(0,10); // AAAA-MM-DD
@@ -21,10 +22,15 @@ let CLIENTES_MASTER = [];          // base de clientes importada de Base_Cliente
 let NECESSIDADE_DIA_ROWS = [];     // linhas de necessidade_dia do vendedor+dia selecionados no momento
 let NECESSIDADE_SEMANA_ROWS = [];  // linhas de necessidade_dia da semana atual inteira (Seg-Sex), pro resumo
 let NECESSIDADE_CAT_ROWS = [];     // linhas de necessidade_dia_categoria do vendedor+dia selecionados (todas as categorias)
-function canEditNecessidade(supervisorNome, vendedorNome){
+// Necessidade do Dia usa o nome curto do ERP (Base_Clientes.xlsx) pro
+// vendedor, diferente do nome completo em CURRENT_VENDEDOR_NOME (planilha
+// Fundamentos) — por isso essa permissão compara o vendedor por código, não
+// por nome. Supervisor continua por supervisor_sheet_name (esse nome bate
+// nas duas planilhas, sem conflito).
+function canEditNecessidadeDia(supervisorNome, vendedorCodigo){
   if(CURRENT_ROLE === 'admin') return true;
   if(CURRENT_ROLE === 'supervisor') return CURRENT_SUP_SHEET === 'Fundamentos ' + supervisorNome;
-  if(CURRENT_ROLE === 'vendedor') return CURRENT_VENDEDOR_NOME === vendedorNome;
+  if(CURRENT_ROLE === 'vendedor') return CURRENT_VENDEDOR_CODIGO !== null && String(CURRENT_VENDEDOR_CODIGO) === String(vendedorCodigo);
   return false;
 }
 let REALTIME_CHANNEL = null;
@@ -103,6 +109,7 @@ async function onLoggedIn(user){
   CURRENT_ROLE = profile.role;
   CURRENT_SUP_SHEET = profile.supervisor_sheet_name;
   CURRENT_VENDEDOR_NOME = profile.vendedor_nome;
+  CURRENT_VENDEDOR_CODIGO = profile.vendedor_codigo;
 
   const roleLabel = { admin:'administrador', supervisor:'supervisor', vendedor:'vendedor' }[CURRENT_ROLE] || CURRENT_ROLE;
 
@@ -285,7 +292,7 @@ async function loadNecessidadeDia(vendedorCodigo, dataStr){
 }
 
 async function saveNecessidadeField(clienteId, vendedorCodigo, supervisorNome, vendedorNome, dataStr, field, valor){
-  if(!canEditNecessidade(supervisorNome, vendedorNome)) return;
+  if(!canEditNecessidadeDia(supervisorNome, vendedorCodigo)) return;
   if(field !== 'valor_desafio' && field !== 'valor_real') return;
   const num = valor === '' ? null : Number(String(valor).replace(',', '.'));
   if(valor !== '' && isNaN(num)) return;
@@ -339,7 +346,7 @@ async function loadNecessidadeCategoriaDia(vendedorCodigo, dataStr){
 }
 
 async function saveNecessidadeCategoriaField(clienteId, vendedorCodigo, supervisorNome, vendedorNome, dataStr, categoria, tipoIndicador, field, valor){
-  if(!canEditNecessidade(supervisorNome, vendedorNome)) return;
+  if(!canEditNecessidadeDia(supervisorNome, vendedorCodigo)) return;
   if(field !== 'valor_desafio' && field !== 'valor_real') return;
   const num = valor === '' ? null : Number(String(valor).replace(',', '.'));
   if(valor !== '' && isNaN(num)) return;
