@@ -402,10 +402,13 @@
   }
   #login-config-warning code{ background:rgba(0,0,0,0.06); padding:1px 5px; border-radius:4px; }
 
-  /* ---------- Badge de usuário / logout ---------- */
-  #user-badge{ font-size:12px; color:var(--muted); font-family:'IBM Plex Mono',monospace; }
-  #logout-btn{ background:transparent; border:1px solid var(--line); color:var(--muted); }
-  #logout-btn:hover{ background:var(--paper-2); color:var(--ink); }
+  /* ---------- Badge de usuário / logout ----------
+     Sidebar tem fundo verde escuro — var(--muted) foi pensado pra texto em
+     fundo claro (contraste baixo demais aqui, ficava "apagado"); usa branco
+     translúcido, igual o resto dos textos secundários da sidebar. */
+  #user-badge{ font-size:12px; color:rgba(255,255,255,0.78); font-family:'IBM Plex Mono',monospace; }
+  #logout-btn{ background:transparent; border:1px solid rgba(255,255,255,0.32); color:rgba(255,255,255,0.88); }
+  #logout-btn:hover{ background:rgba(255,255,255,0.12); color:#FFFFFF; border-color:rgba(255,255,255,0.5); }
 
 </style>
 </head>
@@ -2184,9 +2187,14 @@ function buildIndicadoresTable(supName, vendedores, colunas, isHeishopTab, compS
   });
 
   const compVendedoresList = compVendMap ? [...compVendMap.values()] : [];
-  let totalRow = '<tr class="agg-total"><td class="name-col">'+supName+' (total)</td><td class="num">'+fmtInt(vendedores.reduce((s,v)=>s+(v.pdvs||0),0))+'</td>';
-  totalRow += renderAggregateRowCells(vendedores, compVendedoresList, colunas, comparacaoLabel, compOrdemByKey);
-  totalRow += '</tr>';
+  // com 1 vendedor só na lista (ex: vendedor logado, que só vê a própria
+  // linha), a linha "(total)" seria idêntica à linha dele — não repete.
+  let totalRow = '';
+  if(vendedores.length > 1){
+    totalRow = '<tr class="agg-total"><td class="name-col">'+supName+' (total)</td><td class="num">'+fmtInt(vendedores.reduce((s,v)=>s+(v.pdvs||0),0))+'</td>';
+    totalRow += renderAggregateRowCells(vendedores, compVendedoresList, colunas, comparacaoLabel, compOrdemByKey);
+    totalRow += '</tr>';
+  }
 
   return `
   <div class="section-card">
@@ -2214,12 +2222,12 @@ function selectIndicadoresDate(date){
 }
 function selectIndicadoresComparacao(date){ INDICADORES_DATE_COMPARACAO = date; render(); }
 function selectIndicadoresSup(sup){ INDICADORES_SUP_FILTER = sup; render(); }
-// Clicar numa categoria ADICIONA ela à seleção (multi-seleção). Com a seleção
-// vazia, mostra tudo; com 1+ selecionadas, mostra só essas.
+// Clicar numa categoria TROCA a seleção por ela (seleção única — clicar de
+// novo na já selecionada volta pra "Todas categorias"). Continua guardado
+// como Set de 1 item só pra não mexer no resto do código que já espera Set.
 function toggleIndicadoresCat(subtab, ordemBloco){
-  if(!INDICADORES_CAT_SELECTED[subtab]) INDICADORES_CAT_SELECTED[subtab] = new Set();
-  const set = INDICADORES_CAT_SELECTED[subtab];
-  if(set.has(ordemBloco)) set.delete(ordemBloco); else set.add(ordemBloco);
+  const jaSelecionada = INDICADORES_CAT_SELECTED[subtab] && INDICADORES_CAT_SELECTED[subtab].has(ordemBloco);
+  INDICADORES_CAT_SELECTED[subtab] = jaSelecionada ? new Set() : new Set([ordemBloco]);
   render();
 }
 function resetIndicadoresCat(subtab){ INDICADORES_CAT_SELECTED[subtab] = new Set(); render(); }
@@ -2606,7 +2614,14 @@ function renderIndicadoresPage(){
   const categoriasFiltroLabel = categoriasFiltroNomes ? [...categoriasFiltroNomes].map(prettyLabel).join(', ') : null;
   html += renderEvolucaoMetas(tabDefs.find(t=>t.key===activeKey).label, tabDefs.find(t=>t.key===activeKey).rows, INDICADORES_SUP_FILTER, categoriasFiltroNomes, categoriasFiltroLabel);
 
-  html += buildIndicSummaryTable(supMap, visibleColunas, isHeishopTab, compSupMap, comparacaoLabel, fmtMesAno(INDICADORES_DATE), compOrdemByKey);
+  // Vendedor só vê a própria linha (RLS), então essa tabela agrupada "por
+  // supervisor" ficaria com 1 linha só, mostrando os números do vendedor mas
+  // rotulados com o nome do supervisor — confuso e redundante com a tabela
+  // dele mesmo logo abaixo. Só mostra pra quem realmente compara gente
+  // diferente (admin/supervisor).
+  if(CURRENT_ROLE !== 'vendedor'){
+    html += buildIndicSummaryTable(supMap, visibleColunas, isHeishopTab, compSupMap, comparacaoLabel, fmtMesAno(INDICADORES_DATE), compOrdemByKey);
+  }
 
   const supsToShow = (INDICADORES_SUP_FILTER && supMap.has(INDICADORES_SUP_FILTER))
     ? [INDICADORES_SUP_FILTER] : supNames;
