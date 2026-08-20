@@ -1714,13 +1714,14 @@ function renderCommitmentsPage(){
   // Lista vem só das categorias que existem em Volume E Cobertura ao mesmo tempo.
   const categoriasDisponiveis = categoriasComunsVolumeCobertura();
   const categoriasSelecionadas = categoriasDisponiveis.filter(c => NECESSIDADE_CATEGORIAS_SELECIONADAS.has(c));
+  const tipoAtualEntrada = (typeof NECESSIDADE_TIPO_RESUMO !== 'undefined' ? NECESSIDADE_TIPO_RESUMO : 'volume');
   if(categoriasDisponiveis.length){
     const noneActive = NECESSIDADE_CATEGORIAS_SELECIONADAS.size === 0 ? 'active' : '';
     let catChips = `<button class="cat-chip ${noneActive}" onclick="resetNecessidadeCategoria()">Nenhuma</button>`;
     catChips += categoriasDisponiveis.map(c =>
       `<button class="cat-chip ${NECESSIDADE_CATEGORIAS_SELECIONADAS.has(c)?'active':''}" onclick="toggleNecessidadeCategoria('${c.replace(/'/g,"\\'")}')">${prettyLabel(c)}</button>`
     ).join('');
-    html += `<div class="sup-sub" style="margin-top:0;">Categoria do desafio (vale pro dia inteiro — pode marcar mais de uma; "Nenhuma" volta pro Desafio/Real genérico):</div>
+    html += `<div class="sup-sub" style="margin-top:0;">Categoria do desafio, em <b>${tipoAtualEntrada==='volume'?'Volume':'Cobertura'}</b> (troque no botão lá em cima) — vale pro dia inteiro, pode marcar mais de uma; "Nenhuma" volta pro Desafio/Real genérico:</div>
       <div class="cat-filter" style="margin-bottom:16px;">${catChips}</div>`;
   }
 
@@ -1736,13 +1737,10 @@ function renderCommitmentsPage(){
 
     let catCells = '';
     categoriasSelecionadas.forEach(cat=>{
-      const vol = getNecessidadeCategoria(c.id, cat, 'volume') || {};
-      const cov = getNecessidadeCategoria(c.id, cat, 'cobertura') || {};
+      const ind = getNecessidadeCategoria(c.id, cat, tipoAtualEntrada) || {};
       const numOrNull = v => (v !== null && v !== undefined) ? Number(v) : null;
-      catCells += necessidadeCategoriaInput(c.id, vendedorCodigo, supervisorNome, vendedorNome, dataStr, cat, 'volume', 'valor_desafio', numOrNull(vol.valor_desafio), editable);
-      catCells += necessidadeCategoriaInput(c.id, vendedorCodigo, supervisorNome, vendedorNome, dataStr, cat, 'volume', 'valor_real', numOrNull(vol.valor_real), editable);
-      catCells += necessidadeCategoriaInput(c.id, vendedorCodigo, supervisorNome, vendedorNome, dataStr, cat, 'cobertura', 'valor_desafio', numOrNull(cov.valor_desafio), editable);
-      catCells += necessidadeCategoriaInput(c.id, vendedorCodigo, supervisorNome, vendedorNome, dataStr, cat, 'cobertura', 'valor_real', numOrNull(cov.valor_real), editable);
+      catCells += necessidadeCategoriaInput(c.id, vendedorCodigo, supervisorNome, vendedorNome, dataStr, cat, tipoAtualEntrada, 'valor_desafio', numOrNull(ind.valor_desafio), editable);
+      catCells += necessidadeCategoriaInput(c.id, vendedorCodigo, supervisorNome, vendedorNome, dataStr, cat, tipoAtualEntrada, 'valor_real', numOrNull(ind.valor_real), editable);
     });
 
     // Com categoria selecionada, o par genérico Desafio/Real some — cada
@@ -1767,8 +1765,8 @@ function renderCommitmentsPage(){
       + '<th class="col-canal" rowspan="2">Canal</th>';
     let fieldRow = '';
     categoriasSelecionadas.forEach(cat=>{
-      catRow += '<th colspan="4">'+prettyLabel(cat)+'</th>';
-      fieldRow += '<th class="group-start">Vol. Desafio</th><th>Vol. Real</th><th class="group-start">Cob. Desafio</th><th>Cob. Real</th>';
+      catRow += '<th colspan="2">'+prettyLabel(cat)+'</th>';
+      fieldRow += '<th class="group-start">Desafio</th><th>Real</th>';
     });
     thead = '<tr class="cat-row">'+catRow+'</tr><tr class="field-row">'+fieldRow+'</tr>';
   } else {
