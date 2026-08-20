@@ -32,6 +32,7 @@
     --bad-bg:#FFE5DE;
     --bad-text:#CC2200;           /* Red escurecido — só p/ texto pequeno, pro contraste WCAG AA */
     --muted:#6E6E6E;              /* Silver escurecido — texto secundário legível (Silver puro falha WCAG AA em texto) */
+    --chart-meta:#2A6DB0;         /* azul p/ "Meta" nos gráficos de evolução — par categórico com --copper (Real), validado com scripts/validate_palette.js */
   }
   *{box-sizing:border-box;}
   body{
@@ -2299,6 +2300,190 @@ function buildClientesSemCompraTable(supName, clientes){
   </div>`;
 }
 
+// ---------------------------------------------------------------------------
+// Evolução das metas — soma Meta/Real de TODAS as categorias visíveis no
+// filtro atual (aba + supervisor), por data_referencia, pra dar a visão de
+// tendência que a tabela de um mês só não mostra. Categoria fica de fora do
+// escopo de propósito: ordem_bloco (a chave que liga categoria a coluna) muda
+// de mês pra mês, então casar 1 categoria específica em 6+ meses precisaria
+// do mesmo de-para que a comparação de 2 meses já usa — não compensa pra um
+// gráfico de tendência agregada.
+// ---------------------------------------------------------------------------
+function computeEvolucaoIndicador(rows, supFilter){
+  const byDate = new Map(); // data_referencia -> {meta, real}
+  rows.forEach(r=>{
+    if(supFilter && r.supervisor !== supFilter) return;
+    if(!byDate.has(r.data_referencia)) byDate.set(r.data_referencia, { meta: 0, real: 0 });
+    const e = byDate.get(r.data_referencia);
+    e.meta += Number(r.meta) || 0;
+    e.real += Number(r.real) || 0;
+  });
+  return Array.from(byDate.entries())
+    .map(([data, v]) => ({ data, meta: v.meta, real: v.real, pct: v.meta > 0 ? (v.real / v.meta * 100) : null }))
+    .sort((a, b) => a.data.localeCompare(b.data));
+}
+
+function fmtDataCurta(dataStr){
+  return new Date(dataStr + 'T00:00:00').toLocaleDateString('pt-BR', { day:'2-digit', month:'2-digit' });
+}
+function fmtDataLonga(dataStr){
+  return new Date(dataStr + 'T00:00:00').toLocaleDateString('pt-BR', { day:'2-digit', month:'2-digit', year:'numeric' });
+}
+function evoStatusColor(pct){
+  if(pct === null || pct === undefined) return 'var(--muted)';
+  if(pct >= 90) return 'var(--good)';
+  if(pct >= 60) return 'var(--warn)';
+  return 'var(--bad)';
+}
+
+function renderEvolucaoPercentual(pontos){
+  const W = 640, H = 210, padL = 42, padR = 16, padT = 22, padB = 28;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const n = pontos.length;
+  const valores = pontos.map(p=>p.pct).filter(v=>v!==null);
+  const maxVal = Math.max(100, ...(valores.length ? valores : [0])) * 1.15;
+  const x = i => padL + (n<=1 ? plotW/2 : (plotW*i/(n-1)));
+  const y = v => padT + plotH - (Math.min(v,maxVal)/maxVal)*plotH;
+
+  let gridHtml = '';
+  const steps = 4;
+  for(let s=0;s<=steps;s++){
+    const v = maxVal*s/steps;
+    const yy = y(v);
+    gridHtml += `<line x1="${padL}" y1="${yy.toFixed(1)}" x2="${W-padR}" y2="${yy.toFixed(1)}" stroke="var(--line)" stroke-width="1"/>`;
+    gridHtml += `<text x="${padL-8}" y="${(yy+3.5).toFixed(1)}" text-anchor="end" font-size="10" fill="var(--muted)" font-family="'IBM Plex Mono',monospace">${Math.round(v)}%</text>`;
+  }
+
+  let pathD = '';
+  pontos.forEach((p,i)=>{
+    if(p.pct===null) return;
+    pathD += (pathD===''?'M':'L') + x(i).toFixed(1) + ',' + y(p.pct).toFixed(1) + ' ';
+  });
+
+  const dotsHtml = pontos.map((p,i)=>{
+    if(p.pct===null) return '';
+    const cx = x(i).toFixed(1), cy = y(p.pct).toFixed(1);
+    const cor = evoStatusColor(p.pct);
+    const titulo = (fmtDataLonga(p.data) + ': ' + Math.round(p.pct) + '% (Real ' + fmtNum(p.real) + ' / Meta ' + fmtNum(p.meta) + ')').replace(/"/g,'&quot;');
+    // círculo invisível maior por baixo = área de toque/hover confortável;
+    // o pontinho colorido visível (r=5) fica só decorativo, sem title próprio
+    return `<circle cx="${cx}" cy="${cy}" r="12" fill="transparent" tabindex="0" role="img" aria-label="${titulo}"><title>${titulo}</title></circle>`
+      + `<circle cx="${cx}" cy="${cy}" r="5" fill="${cor}" stroke="var(--paper)" stroke-width="2" pointer-events="none"/>`;
+  }).join('');
+
+  const xLabelsHtml = pontos.map((p,i)=>
+    `<text x="${x(i).toFixed(1)}" y="${H-8}" text-anchor="middle" font-size="10" fill="var(--muted)" font-family="'IBM Plex Mono',monospace">${fmtDataCurta(p.data)}</text>`
+  ).join('');
+
+  const ultimo = pontos[n-1];
+  const endLabelHtml = (ultimo && ultimo.pct!==null)
+    ? `<text x="${x(n-1).toFixed(1)}" y="${(y(ultimo.pct)-12).toFixed(1)}" text-anchor="end" font-size="12" font-weight="700" fill="var(--ink)" font-family="'IBM Plex Mono',monospace">${Math.round(ultimo.pct)}%</text>`
+    : '';
+
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%; height:auto; display:block;" role="img" aria-label="Evolução do percentual de atingimento">
+    ${gridHtml}
+    <path d="${pathD.trim()}" fill="none" stroke="var(--copper)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    ${dotsHtml}
+    ${endLabelHtml}
+    ${xLabelsHtml}
+  </svg>`;
+}
+
+function roundedTopBarPath(x0, yBase, yTop, bw, r){
+  const h = yBase - yTop;
+  if(h <= 0.5) return '';
+  const rr = Math.max(0, Math.min(r, h, bw/2));
+  return `M${x0.toFixed(1)},${yBase.toFixed(1)} L${x0.toFixed(1)},${(yTop+rr).toFixed(1)} `
+    + `Q${x0.toFixed(1)},${yTop.toFixed(1)} ${(x0+rr).toFixed(1)},${yTop.toFixed(1)} `
+    + `L${(x0+bw-rr).toFixed(1)},${yTop.toFixed(1)} `
+    + `Q${(x0+bw).toFixed(1)},${yTop.toFixed(1)} ${(x0+bw).toFixed(1)},${(yTop+rr).toFixed(1)} `
+    + `L${(x0+bw).toFixed(1)},${yBase.toFixed(1)} Z`;
+}
+
+function renderEvolucaoMetaReal(pontos){
+  const W = 640, H = 210, padL = 46, padR = 16, padT = 22, padB = 28;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const n = pontos.length;
+  const maxVal = Math.max(1, ...pontos.map(p=>Math.max(p.meta,p.real))) * 1.15;
+  const groupW = plotW / n;
+  const barW = Math.min(24, groupW*0.32);
+  const gap = 2;
+  const yBase = padT + plotH;
+  const y = v => padT + plotH - (Math.min(v,maxVal)/maxVal)*plotH;
+
+  let gridHtml = '';
+  const steps = 4;
+  for(let s=0;s<=steps;s++){
+    const v = maxVal*s/steps;
+    const yy = y(v);
+    gridHtml += `<line x1="${padL}" y1="${yy.toFixed(1)}" x2="${W-padR}" y2="${yy.toFixed(1)}" stroke="var(--line)" stroke-width="1"/>`;
+    gridHtml += `<text x="${padL-8}" y="${(yy+3.5).toFixed(1)}" text-anchor="end" font-size="10" fill="var(--muted)" font-family="'IBM Plex Mono',monospace">${fmtInt(v)}</text>`;
+  }
+
+  let barsHtml = '', xLabelsHtml = '';
+  pontos.forEach((p,i)=>{
+    const cx = padL + groupW*(i+0.5);
+    const metaX = cx - barW - gap/2;
+    const realX = cx + gap/2;
+    const metaPath = roundedTopBarPath(metaX, yBase, y(p.meta), barW, 4);
+    const realPath = roundedTopBarPath(realX, yBase, y(p.real), barW, 4);
+    const tituloMeta = (fmtDataLonga(p.data) + ' — Meta: ' + fmtNum(p.meta)).replace(/"/g,'&quot;');
+    const tituloReal = (fmtDataLonga(p.data) + ' — Real: ' + fmtNum(p.real)).replace(/"/g,'&quot;');
+    if(metaPath) barsHtml += `<path d="${metaPath}" fill="var(--chart-meta)" tabindex="0" role="img" aria-label="${tituloMeta}"><title>${tituloMeta}</title></path>`;
+    if(realPath) barsHtml += `<path d="${realPath}" fill="var(--copper)" tabindex="0" role="img" aria-label="${tituloReal}"><title>${tituloReal}</title></path>`;
+    xLabelsHtml += `<text x="${cx.toFixed(1)}" y="${H-8}" text-anchor="middle" font-size="10" fill="var(--muted)" font-family="'IBM Plex Mono',monospace">${fmtDataCurta(p.data)}</text>`;
+  });
+
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%; height:auto; display:block;" role="img" aria-label="Evolução de Meta e Real em valores absolutos">
+    ${gridHtml}
+    ${barsHtml}
+    ${xLabelsHtml}
+  </svg>`;
+}
+
+function renderEvolucaoMetas(tabLabel, rows, supFilter){
+  const pontos = computeEvolucaoIndicador(rows, supFilter);
+  if(pontos.length < 2) return ''; // sem tendência pra mostrar com 0-1 ponto
+
+  const tabelaHtml = `<table class="data" style="margin-top:8px;">
+    <thead><tr><th>Data</th><th style="min-width:90px;">Meta</th><th style="min-width:90px;">Real</th><th style="min-width:70px;">%</th></tr></thead>
+    <tbody>${pontos.map(p=>{
+      const cls = p.pct===null ? '' : (p.pct>=90?'pct-good':p.pct>=60?'pct-warn':'pct-bad');
+      const pctTxt = p.pct===null ? '—' : Math.round(p.pct)+'%';
+      return `<tr><td>${fmtDataLonga(p.data)}</td><td class="num">${fmtNum(p.meta)}</td><td class="num">${fmtNum(p.real)}</td><td class="num ${cls}">${pctTxt}</td></tr>`;
+    }).join('')}</tbody>
+  </table>`;
+
+  return `
+  <div class="section-card">
+    <div class="section-head" onclick="toggleSection(this)">
+      <span class="chev">▾</span>
+      <h3>Evolução — ${tabLabel}</h3>
+      <span class="n">${pontos.length} períodos${supFilter?' · '+supFilter:''}</span>
+    </div>
+    <div class="section-body">
+      <div style="display:flex; gap:24px; flex-wrap:wrap; padding:16px 18px 4px;">
+        <div style="flex:1 1 280px; min-width:260px;">
+          <div class="sup-sub" style="margin:0 0 6px;">% de atingimento (Real ÷ Meta)</div>
+          ${renderEvolucaoPercentual(pontos)}
+        </div>
+        <div style="flex:1 1 280px; min-width:260px;">
+          <div class="sup-sub" style="margin:0 0 6px;">Meta x Real (valores absolutos)</div>
+          <div style="display:flex; gap:16px; margin-bottom:4px; font-size:12px; color:var(--muted);">
+            <span style="display:inline-flex; align-items:center; gap:6px;"><span style="width:10px;height:10px;border-radius:2px;background:var(--chart-meta);display:inline-block;"></span>Meta</span>
+            <span style="display:inline-flex; align-items:center; gap:6px;"><span style="width:10px;height:10px;border-radius:2px;background:var(--copper);display:inline-block;"></span>Real</span>
+          </div>
+          ${renderEvolucaoMetaReal(pontos)}
+        </div>
+      </div>
+      <div style="padding:0 18px 14px;">
+        <a href="#" onclick="var d=this.nextElementSibling; var h=(d.style.display==='none'||!d.style.display); d.style.display=h?'block':'none'; this.textContent=h?'Esconder tabela':'Ver como tabela'; return false;" style="font-size:12px;">Ver como tabela</a>
+        <div class="table-scroll" style="display:none; margin-top:4px;">${tabelaHtml}</div>
+      </div>
+    </div>
+  </div>`;
+}
+
 function renderIndicadoresPage(){
   if(!INDICADORES_DATA){
     return '<div class="section-card"><div class="section-body" style="padding:20px;">Carregando indicadores…</div></div>';
@@ -2403,6 +2588,8 @@ function renderIndicadoresPage(){
   const categoriaRow = filtroRow('Categoria', buildIndicCategoryFilter(activeKey, colunas, isHeishopTab));
   const supervisorRow = filtroRow('Supervisor', buildIndicSupervisorFilter(supNames));
   let html = '<div class="indic-filtros">'+mesRow+indicadorRow+categoriaRow+supervisorRow+'</div>';
+
+  html += renderEvolucaoMetas(tabDefs.find(t=>t.key===activeKey).label, tabDefs.find(t=>t.key===activeKey).rows, INDICADORES_SUP_FILTER);
 
   // seleção vazia = mostra todas as categorias; com 1+ selecionadas, mostra só essas
   const selectedCats = INDICADORES_CAT_SELECTED[activeKey] || new Set();
