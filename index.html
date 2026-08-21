@@ -2749,7 +2749,11 @@ function renderSidebar(){
   // correspondente — a tabela em si já é protegida por RLS, isso aqui é só
   // pra não mostrar um item de menu que dá vazio.
   const podeVerExecutivo = CURRENT_ROLE === 'admin' || (typeof CURRENT_PODE_VER_EXECUTIVO !== 'undefined' && CURRENT_PODE_VER_EXECUTIVO);
-  const podeVerRemuneracao = CURRENT_ROLE === 'admin' || (typeof CURRENT_PODE_VER_REMUNERACAO !== 'undefined' && CURRENT_PODE_VER_REMUNERACAO);
+  // Supervisor/vendedor sempre veem o botão agora — o RLS já escopa cada um
+  // pro próprio time/própria linha (schema_remuneracao_supervisor_vendedor.sql).
+  // pode_ver_remuneracao continua liberando alguém específico (ex: RH) a ver tudo.
+  const podeVerRemuneracao = CURRENT_ROLE === 'admin' || CURRENT_ROLE === 'supervisor' || CURRENT_ROLE === 'vendedor'
+    || (typeof CURRENT_PODE_VER_REMUNERACAO !== 'undefined' && CURRENT_PODE_VER_REMUNERACAO);
   const volFutBtn = podeVerExecutivo ? `
     <button class="sup-btn ${vfActive}" onclick="selectSupervisor('VOLUMES_FUTUROS')">
       <span class="sup-avatar">📈</span>
