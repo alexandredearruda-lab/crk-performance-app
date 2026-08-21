@@ -39,7 +39,11 @@ function canEditNecessidadeDia(supervisorNome, vendedorCodigo){
 }
 let REALTIME_CHANNEL = null;
 let NECESSIDADE_REALTIME_CHANNEL = null;
-const POLL_FALLBACK_MS = 25000;
+// Era 25000 (25s) — cada disparo reconstrói a tela inteira do zero, o que já
+// causou dois bugs de "fecha sozinho" (Volumes Futuros voltando pra outra
+// aba, cards de Remuneração recolhendo). É só um reforço caso o tempo real
+// falhe, não o mecanismo principal — não precisa ser tão frequente.
+const POLL_FALLBACK_MS = 180000; // 3 minutos
 
 function isConfigured(){
   return SUPABASE_URL && !SUPABASE_URL.includes('COLE_AQUI') &&
@@ -287,7 +291,7 @@ async function loadDataFromDB(){
     CLIENTES_MASTER = clienteRows;
     NECESSIDADE_SEMANA_ROWS = necessidadeSemanaRows;
     NECESSIDADE_CAT_SEMANA_ROWS = necessidadeCatSemanaRows;
-    const SPECIAL_VIEWS = ['COMMITMENTS','INCENTIVO','INDICADORES','VOLUMES_FUTUROS','REMUNERACAO'];
+    const SPECIAL_VIEWS = ['COMMITMENTS','INCENTIVO','INDICADORES','VOLUMES_FUTUROS','REMUNERACAO','ADMIN'];
     if(!ACTIVE_SUP || (!SPECIAL_VIEWS.includes(ACTIVE_SUP) && !DATA.supervisors.find(s => s.sheetName === ACTIVE_SUP))){
       ACTIVE_SUP = DATA.supervisors[0].sheetName;
     }
@@ -320,6 +324,44 @@ function subscribeRealtime(){
     .on('postgres_changes', { event: '*', schema: 'public', table: 'heishop_indicadores' }, scheduleReload)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'clientes_sem_compra' }, scheduleReload)
     .subscribe();
+}
+
+/* =====================================================================
+   ADMINISTRAÇÃO — lista de perfis com os interruptores de acesso a
+   Volumes Futuros / Remuneração (schema_admin_acessos.sql). Só admin chega
+   aqui (RLS via is_admin() + botão da sidebar já escondido pros demais).
+===================================================================== */
+let ADMIN_PROFILES = null; // null = ainda não buscou; 'loading'; ou array de perfis
+async function loadAdminProfiles(){
+  if(ADMIN_PROFILES !== null) return;
+  ADMIN_PROFILES = 'loading';
+  try{
+    const { data, error } = await db.from('profiles').select('*').order('role').order('display_name');
+    if(error) throw error;
+    ADMIN_PROFILES = data || [];
+  }catch(e){
+    console.error(e);
+    showStatus('✗ Não foi possível carregar os perfis: ' + (e.message || e) + '. Se a policy ainda não existe, rode o arquivo schema_admin_acessos.sql no Supabase.', true);
+    ADMIN_PROFILES = [];
+  }
+  render();
+}
+
+async function toggleProfileFlag(userId, campo){
+  const perfil = (Array.isArray(ADMIN_PROFILES) ? ADMIN_PROFILES : []).find(p => p.id === userId);
+  if(!perfil) return;
+  const novoValor = !perfil[campo];
+  perfil[campo] = novoValor; // otimista — atualiza a tela na hora, sem esperar o round-trip
+  render();
+  try{
+    const { error } = await db.from('profiles').update({ [campo]: novoValor }).eq('id', userId);
+    if(error) throw error;
+  }catch(e){
+    console.error(e);
+    perfil[campo] = !novoValor; // desfaz se der erro
+    showStatus('✗ Não foi possível salvar: ' + (e.message || e), true);
+    render();
+  }
 }
 
 /* =====================================================================

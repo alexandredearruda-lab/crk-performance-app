@@ -2764,6 +2764,12 @@ function renderSidebar(){
       <span class="sup-avatar">💰</span>
       <span>Remuneração</span>
     </button>` : '';
+  const adminActive = ACTIVE_SUP === 'ADMIN' ? 'active' : '';
+  const adminBtn = CURRENT_ROLE === 'admin' ? `
+    <button class="sup-btn ${adminActive}" onclick="selectSupervisor('ADMIN')">
+      <span class="sup-avatar">⚙</span>
+      <span>Administração</span>
+    </button>` : '';
   fixed.innerHTML = `<button class="sup-btn ${cmActive}" onclick="selectSupervisor('COMMITMENTS')">
       <span class="sup-avatar">☑</span>
       <span>Necessidade do Dia</span>
@@ -2778,6 +2784,7 @@ function renderSidebar(){
     </button>
     ${volFutBtn}
     ${remunBtn}
+    ${adminBtn}
     <div style="border-bottom:1px solid rgba(233,223,205,0.12); margin:8px 2px 4px;"></div>`;
 
   // A lista de supervisores por vendor_snapshots (upload manual antigo) foi
@@ -3262,6 +3269,73 @@ function renderRemuneracaoPage(){
   return html;
 }
 
+/* =====================================================================
+   ADMINISTRAÇÃO — liga/desliga pode_ver_executivo (Volumes Futuros) e
+   pode_ver_remuneracao pra qualquer perfil, sem precisar de SQL manual.
+   Só admin chega aqui (botão da sidebar escondido + RLS via is_admin()).
+===================================================================== */
+function renderAdminPage(){
+  if(typeof ADMIN_PROFILES !== 'undefined' && ADMIN_PROFILES === null && typeof loadAdminProfiles === 'function') loadAdminProfiles();
+
+  const header = `
+    <div class="sup-header"><h2>Administração</h2></div>
+    <div class="sup-sub">Libera acesso a Volumes Futuros e Remuneração pra pessoas específicas, sem precisar de SQL.</div>
+  `;
+
+  const perfis = typeof ADMIN_PROFILES !== 'undefined' ? ADMIN_PROFILES : null;
+  if(perfis === null || perfis === 'loading'){
+    return header + '<div class="section-card"><div class="section-body" style="padding:20px;">Carregando…</div></div>';
+  }
+  if(!perfis.length){
+    return header + '<div class="sup-sub">Nenhum perfil encontrado. Se a tela ficar sempre vazia, confira se rodou schema_admin_acessos.sql no Supabase.</div>';
+  }
+
+  const pill = (ligado, onclick) =>
+    `<button onclick="${onclick}" class="cat-chip ${ligado?'active':''}" style="min-width:84px;">${ligado?'Liberado':'Bloqueado'}</button>`;
+
+  const rows = [...perfis].sort((a,b)=>{
+    const ra = a.role||'', rb = b.role||'';
+    if(ra !== rb) return ra.localeCompare(rb);
+    return (a.display_name||'').localeCompare(b.display_name||'');
+  }).map(p=>{
+    const nome = p.display_name || p.vendedor_nome || '(sem nome)';
+    const contexto = p.role === 'vendedor' ? (p.vendedor_nome || '—')
+      : p.role === 'supervisor' ? String(p.supervisor_sheet_name || '—').replace('Fundamentos ', '')
+      : '—';
+    const jaVeTudo = p.role === 'admin';
+    const celulaAcesso = campo => jaVeTudo
+      ? '<span class="sup-sub" style="margin:0;">já vê tudo</span>'
+      : pill(p[campo], "toggleProfileFlag('"+p.id+"','"+campo+"')");
+    return `<tr>
+      <td class="name-col">${nome}</td>
+      <td>${prettyLabel(p.role||'—')}</td>
+      <td>${contexto}</td>
+      <td>${celulaAcesso('pode_ver_executivo')}</td>
+      <td>${celulaAcesso('pode_ver_remuneracao')}</td>
+    </tr>`;
+  }).join('');
+
+  return header + `
+  <div class="section-card">
+    <div class="section-head" onclick="toggleSection(this)">
+      <span class="chev">▾</span>
+      <h3>Pessoas cadastradas</h3>
+      <span class="n">${perfis.length}</span>
+    </div>
+    <div class="section-body">
+      <div class="table-scroll">
+        <table class="data">
+          <thead><tr>
+            <th class="name-col">Nome</th><th>Papel</th><th>Time / Vendedor</th>
+            <th style="min-width:120px;">Volumes Futuros</th><th style="min-width:120px;">Remuneração</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    </div>
+  </div>`;
+}
+
 function render(){
   renderTopMeta();
   renderSidebar();
@@ -3288,6 +3362,13 @@ function render(){
     view.style.display = 'block';
     noMatch.style.display = 'none';
     view.innerHTML = renderRemuneracaoPage();
+    return;
+  }
+  if(ACTIVE_SUP === 'ADMIN'){
+    empty.style.display = 'none';
+    view.style.display = 'block';
+    noMatch.style.display = 'none';
+    view.innerHTML = renderAdminPage();
     return;
   }
 
