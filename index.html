@@ -3122,16 +3122,35 @@ function buildRemunSupervisorFilter(supNames){
 function fmtMoney2(v){
   return (v === null || v === undefined) ? '—' : 'R$ '+Number(v).toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2});
 }
-function fmtPctRemun(v){
-  return (v === null || v === undefined) ? '—' : (Number(v)*100).toLocaleString('pt-BR', {maximumFractionDigits:1})+'%';
+// Agrupa em Volume (HL...) / Cobertura (COB...) / Outros indicadores — as
+// duas primeiras famílias hoje vêm intercaladas na planilha, dificultando
+// comparar indicadores do mesmo tipo entre si.
+function agruparCategoriasRemun(catRows){
+  const grupos = new Map([['Volume', []], ['Cobertura', []], ['Outros indicadores', []]]);
+  catRows.forEach(c=>{
+    const nome = String(c.categoria || '').trim().toLowerCase();
+    const grupo = nome.startsWith('hl') ? 'Volume' : (nome.startsWith('cob') ? 'Cobertura' : 'Outros indicadores');
+    grupos.get(grupo).push(c);
+  });
+  return [...grupos.entries()].filter(([, rows]) => rows.length > 0);
 }
 
 function buildRemunCategoriaTable(catRows){
   if(!catRows.length) return '<div class="sup-sub" style="padding:8px 12px;">Sem detalhamento por categoria.</div>';
-  const rows = [...catRows].sort((a,b)=>a.ordem_bloco-b.ordem_bloco).map(c=>
-    `<tr><td class="name-col">${prettyLabel(c.categoria)}</td><td class="num">${fmtPctRemun(c.real_pct)}</td><td class="num">${fmtMoney2(c.valor_r)}</td></tr>`
-  ).join('');
-  return `<table class="data" style="margin:8px 0;"><thead><tr><th class="name-col">Categoria</th><th style="min-width:70px;">% Real</th><th style="min-width:100px;">R$</th></tr></thead><tbody>${rows}</tbody></table>`;
+  const grupos = agruparCategoriasRemun(catRows);
+  const blocosHtml = grupos.map(([grupoNome, rowsGrupo])=>{
+    const rows = [...rowsGrupo].sort((a,b)=>a.ordem_bloco-b.ordem_bloco).map(c=>{
+      const p = fmtPct(c.real_pct);
+      const pagouAlgo = c.valor_r !== null && c.valor_r !== undefined && c.valor_r > 0;
+      const pctCell = p.text === '—' ? '<td class="num">—</td>'
+        : `<td class="${p.cls}"><div class="pct-cell"><span class="pct-bar"><span style="width:${p.width}%"></span></span>${p.text}</div></td>`;
+      // linha que não pagou nada fica mais apagada — o olho vai direto pro que rendeu comissão de verdade
+      return `<tr${pagouAlgo?'':' style="opacity:.55;"'}><td class="name-col">${prettyLabel(c.categoria)}</td>${pctCell}<td class="num" style="font-weight:${pagouAlgo?'600':'400'};">${fmtMoney2(c.valor_r)}</td></tr>`;
+    }).join('');
+    return `<div style="font-family:'IBM Plex Mono',monospace; font-size:10px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:12px 0 4px;">${grupoNome}</div>
+      <table class="data"><thead><tr><th class="name-col">Categoria</th><th style="min-width:110px;">% Real</th><th style="min-width:100px;">R$</th></tr></thead><tbody>${rows}</tbody></table>`;
+  }).join('');
+  return `<div style="margin:4px 0 10px;">${blocosHtml}</div>`;
 }
 
 function buildRemunTable(titulo, pessoas, categoriaPorPessoa){
