@@ -210,10 +210,10 @@
     border-left:2px solid var(--line);
   }
   table.data td.name-col, table.data th.name-col{
-    text-align:left; position:sticky; left:0; background:#fff; z-index:3;
-    font-weight:600; box-shadow:2px 0 6px -3px rgba(0,0,0,0.12);
+    text-align:left; background:#fff;
+    font-weight:600;
   }
-  table.data thead th.name-col{ z-index:4; background:#fff; }
+  table.data thead th.name-col{ background:#fff; }
   table.data thead tr.cat-row th.name-col{ background:var(--malt-900); }
   .necessidade-clientes-table .name-col{ min-width:190px; }
   table.data td.setor-col, table.data th.setor-col{
@@ -338,8 +338,8 @@
     .section-head h3{ font-size:14px; }
     .cat-filter{ padding:12px 14px 0; }
 
-    table.data{ font-size:11.5px; }
-    table.data th, table.data td{ padding:7px 8px; }
+    table.data{ font-size:12.5px; }
+    table.data th, table.data td{ padding:8px 9px; }
     .table-scroll{ -webkit-overflow-scrolling:touch; }
     .pct-bar{ width:22px; }
 
@@ -353,7 +353,7 @@
     .brand h1{ font-size:15px; }
     .sup-header h2{ font-size:18px; }
     .kpi-card .kpi-value{ font-size:20px; }
-    table.data{ font-size:11px; }
+    table.data{ font-size:12px; }
   }
 
   /* Necessidade do Dia: em telas estreitas, some com Cidade/Canal pra Cliente,
@@ -369,6 +369,18 @@
       min-width:0; width:112px; max-width:112px;
       overflow:hidden; text-overflow:ellipsis;
     }
+
+    /* Remuneração: Supervisor/Dias Úteis/Dias Trab. são contexto, não o
+       número que importa — some pra Fixo/Comissão/Produtividade/Total/
+       Pedágio caberem sem rolar de lado. */
+    .remun-table .col-secondary{ display:none; }
+
+    /* Volumes Futuros — 40 PDVs Amstel: Cidade/Canal e o checklist de
+       execução (hoje quase sempre vazio na planilha) somem; Cliente,
+       Matriz, Vendedor e as 3 coberturas continuam visíveis. */
+    .amstel-table .col-cidade,
+    .amstel-table .col-canal,
+    .amstel-table .col-checklist{ display:none; }
   }
 
 
@@ -493,6 +505,14 @@ let SEARCH_TERM = '';
 const SECTION_LABELS = ['Volume (HL)', 'Cobertura (PDVs positivados)', 'Outros indicadores'];
 const SORT_STATE = {}; // { "sheetName:sectionIdx": 'asc'|'desc'|null }
 let SHOW_DETAIL = true;
+// No celular, as tabelas já são largas até sem essa coluna extra — começa
+// desmarcado (usuário liga de volta se quiser); no computador continua
+// ligado como sempre.
+if(typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(max-width: 860px)').matches){
+  SHOW_DETAIL = false;
+  const toggleEl = document.getElementById('detail-toggle');
+  if(toggleEl) toggleEl.checked = false;
+}
 function sectionLabel(i){ return SECTION_LABELS[i] || ('Bloco ' + (i+1)); }
 
 /* =====================================================================
@@ -2975,18 +2995,18 @@ function buildAmstelTable(supName, clientes){
   const badge = v => v === 1 ? '<span class="pct-good">✓</span>' : (v === 0 ? '<span class="pct-bad">✗</span>' : '—');
   const rows = clientes.map(c => `<tr>
       <td class="name-col">${c.fantasia}</td>
-      <td>${c.cidade || '—'}</td>
-      <td>${c.canal || '—'}</td>
+      <td class="col-cidade">${c.cidade || '—'}</td>
+      <td class="col-canal">${c.canal || '—'}</td>
       <td>${c.matriz_nivel || '—'}</td>
       <td>${c.vendedor_nome || '—'}</td>
       <td class="num">${badge(c.cob_spin)}</td>
       <td class="num">${badge(c.cob_craft)}</td>
       <td class="num">${badge(c.cob_fys_itubaina)}</td>
-      <td>${c.geladeira_chopeira || '—'}</td>
-      <td>${c.cardapio || '—'}</td>
-      <td>${c.uniforme || '—'}</td>
-      <td>${c.fachada_execucao || '—'}</td>
-      <td>${c.contrato_acordo || '—'}</td>
+      <td class="col-checklist">${c.geladeira_chopeira || '—'}</td>
+      <td class="col-checklist">${c.cardapio || '—'}</td>
+      <td class="col-checklist">${c.uniforme || '—'}</td>
+      <td class="col-checklist">${c.fachada_execucao || '—'}</td>
+      <td class="col-checklist">${c.contrato_acordo || '—'}</td>
     </tr>`).join('');
 
   return `
@@ -2998,11 +3018,11 @@ function buildAmstelTable(supName, clientes){
     </div>
     <div class="section-body">
       <div class="table-scroll">
-        <table class="data">
+        <table class="data amstel-table">
           <thead><tr>
-            <th class="name-col">Cliente</th><th>Cidade</th><th>Canal</th><th>Matriz</th><th>Vendedor</th>
+            <th class="name-col">Cliente</th><th class="col-cidade">Cidade</th><th class="col-canal">Canal</th><th>Matriz</th><th>Vendedor</th>
             <th>Cob. SPIN</th><th>Cob. Craft</th><th>Cob. FYS/Itub.</th>
-            <th>Geladeira/Chopeira</th><th>Cardápio</th><th>Uniforme</th><th>Fachada</th><th>Contrato</th>
+            <th class="col-checklist">Geladeira/Chopeira</th><th class="col-checklist">Cardápio</th><th class="col-checklist">Uniforme</th><th class="col-checklist">Fachada</th><th class="col-checklist">Contrato</th>
           </tr></thead>
           <tbody>${rows}</tbody>
         </table>
@@ -3170,9 +3190,9 @@ function buildRemunTable(titulo, pessoas, categoriaPorPessoa){
     const pessoaAberta = REMUN_OPEN_PESSOAS.has(chave);
     return `<tr>
         <td class="name-col">${p.pessoa}</td>
-        <td>${p.supervisor || '—'}</td>
-        <td class="num">${p.dias_uteis ?? '—'}</td>
-        <td class="num">${p.dias_trab ?? '—'}</td>
+        <td class="col-secondary">${p.supervisor || '—'}</td>
+        <td class="num col-secondary">${p.dias_uteis ?? '—'}</td>
+        <td class="num col-secondary">${p.dias_trab ?? '—'}</td>
         <td class="num">${fmtMoney2(p.fixo)}</td>
         <td class="num">${fmtMoney2(p.comissao)}</td>
         <td class="num">${fmtMoney2(p.produtividade)}</td>
@@ -3194,9 +3214,9 @@ function buildRemunTable(titulo, pessoas, categoriaPorPessoa){
     </div>
     <div class="section-body ${cardAberto?'':'collapsed'}">
       <div class="table-scroll">
-        <table class="data">
+        <table class="data remun-table">
           <thead><tr>
-            <th class="name-col" style="min-width:170px;">Pessoa</th><th>Supervisor</th><th>Dias Úteis</th><th>Dias Trab.</th>
+            <th class="name-col" style="min-width:170px;">Pessoa</th><th class="col-secondary">Supervisor</th><th class="col-secondary">Dias Úteis</th><th class="col-secondary">Dias Trab.</th>
             <th style="min-width:90px;">Fixo</th><th style="min-width:90px;">Comissão</th><th style="min-width:110px;">Produtividade</th>
             <th style="min-width:100px;">Total</th><th style="min-width:90px;">Pedágio</th><th></th>
           </tr></thead>
