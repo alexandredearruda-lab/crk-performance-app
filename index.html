@@ -425,12 +425,12 @@
        Pedágio caberem sem rolar de lado. */
     .remun-table .col-secondary{ display:none; }
 
-    /* Volumes Futuros — 40 PDVs Amstel: Cidade/Canal e o checklist de
-       execução (hoje quase sempre vazio na planilha) somem; Cliente,
-       Matriz, Vendedor e as 3 coberturas continuam visíveis. */
-    .amstel-table .col-cidade,
-    .amstel-table .col-canal,
-    .amstel-table .col-checklist{ display:none; }
+    /* Executivos — 40 PDVs (Amstel / Volume Futuro): Cidade/Canal e o
+       checklist de execução (hoje quase sempre vazio na planilha) somem;
+       Cliente, Matriz, Vendedor e as coberturas continuam visíveis. */
+    .exec-table .col-cidade,
+    .exec-table .col-canal,
+    .exec-table .col-checklist{ display:none; }
   }
 
 
@@ -581,14 +581,45 @@ let INDICADORES_SUBTAB = 'volume'; // 'volume' | 'cobertura' | 'heishop'
 let INDICADORES_SUP_FILTER = null; // null = todos os supervisores, ou o nome de um só
 
 /* =====================================================================
-   VOLUMES FUTUROS — aba nova, só admin/pode_ver_executivo (RLS), lê de
-   volumes_futuros_indicadores / amstel_estrategico (scripts/import_volumes_futuros.js).
+   EXECUTIVOS — aba nova (antiga "Volumes Futuros"), só admin/pode_ver_
+   executivo (RLS). 2 marcas com botão próprio (Amstel / Volume Futuro),
+   cada uma vinda de uma planilha diferente. Resumo por vendedor divide a
+   mesma tabela (volumes_futuros_indicadores, filtrada por "marca"); o
+   checklist de PDVs tem uma tabela própria por marca (amstel_estrategico /
+   volumefuturo_estrategico) porque as colunas do checklist são diferentes
+   em cada planilha. Gravado por scripts/import_executivo.js.
    VOLUMES_FUTUROS_DATA é carregado em auth_and_db.js.
 ===================================================================== */
-let VOLUMES_FUTUROS_DATA = null; // { resumo:[...], amstel:[...], datasDisponiveis:[...] }
+let VOLUMES_FUTUROS_DATA = null; // { resumo:[...], amstel:[...], volumeFuturo:[...], datasDisponiveis:[...] }
 let VOLFUT_DATE = null;          // data_referencia selecionada
-let VOLFUT_SUBTAB = 'resumo';    // 'resumo' | 'amstel'
+let VOLFUT_MARCA = 'amstel';     // 'amstel' | 'volume_futuro' — qual dos 2 botões está ativo
+let VOLFUT_SUBTAB = 'resumo';    // 'resumo' | 'estrategica'
 let VOLFUT_SUP_FILTER = null;    // estado próprio, não compartilha com INDICADORES_SUP_FILTER
+
+// Config de cada marca: nome de exibição, campo com os dados de checklist em
+// VOLUMES_FUTUROS_DATA, e quais colunas de flag mostrar na tabela de PDVs
+// estratégicos (cada planilha tem um checklist de cobertura diferente).
+const VOLFUT_MARCAS = {
+  amstel: {
+    label: 'Amstel',
+    campoEstrategica: 'amstel',
+    flags: [
+      { campo: 'rgb_amstel', titulo: 'RGB Amstel' },
+      { campo: 'rgb_heineken', titulo: 'RGB Heineken' },
+      { campo: 'onde_tem_hnk_tem_amstel', titulo: 'Onde tem HNK, tem Amstel' },
+      { campo: 'amstel_ow', titulo: 'Amstel OW' },
+    ],
+  },
+  volume_futuro: {
+    label: 'Volume Futuro',
+    campoEstrategica: 'volumeFuturo',
+    flags: [
+      { campo: 'cob_spin', titulo: 'Cob. SPIN' },
+      { campo: 'cob_craft', titulo: 'Cob. Craft' },
+      { campo: 'cob_fys_itubaina', titulo: 'Cob. FYS/Itub.' },
+    ],
+  },
+};
 
 /* =====================================================================
    REMUNERAÇÃO — aba nova, só admin/pode_ver_remuneracao (RLS), lê de
@@ -3108,7 +3139,7 @@ function renderSidebar(){
   const volFutBtn = podeVerExecutivo ? `
     <button class="sup-btn ${vfActive}" onclick="selectSupervisor('VOLUMES_FUTUROS')">
       <span class="sup-avatar">📈</span>
-      <span>Volumes Futuros</span>
+      <span>Executivos</span>
     </button>` : '';
   const remunBtn = podeVerRemuneracao ? `
     <button class="sup-btn ${rmActive}" onclick="selectSupervisor('REMUNERACAO')">
@@ -3304,13 +3335,16 @@ function buildClientTable(clients){
 }
 
 /* =====================================================================
-   VOLUMES FUTUROS — 2 sub-abas: "Resumo por Vendedor" (mesmo formato
-   vendedor x categoria de Indicadores, reaproveita toda a infraestrutura de
-   lá — groupIndicadoresRows/buildIndicSummaryTable/buildIndicadoresTable já
-   funcionam porque volumes_futuros_indicadores tem exatamente as mesmas
-   colunas que volume_indicadores/cobertura_indicadores) e "40 PDVs Amstel"
-   (checklist por cliente, tabela própria — formato bem diferente).
+   EXECUTIVOS — 2 botões de marca (Amstel / Volume Futuro), cada um vindo de
+   uma planilha diferente. Dentro de cada marca, 2 sub-abas: "Resumo por
+   Vendedor" (mesmo formato vendedor x categoria de Indicadores, reaproveita
+   toda a infraestrutura de lá — groupIndicadoresRows/buildIndicSummaryTable/
+   buildIndicadoresTable já funcionam porque volumes_futuros_indicadores tem
+   exatamente as mesmas colunas que volume_indicadores/cobertura_indicadores)
+   e "40 PDVs" (checklist por cliente, tabela própria — colunas de cobertura
+   diferentes em cada marca, ver VOLFUT_MARCAS).
 ===================================================================== */
+function selectVolFutMarca(marca){ VOLFUT_MARCA = marca; VOLFUT_SUP_FILTER = null; render(); }
 function selectVolFutDate(d){ VOLFUT_DATE = d; render(); }
 function selectVolFutSubtab(tab){ VOLFUT_SUBTAB = tab; render(); }
 function selectVolFutSup(sup){ VOLFUT_SUP_FILTER = sup; render(); }
@@ -3326,7 +3360,10 @@ function buildVolFutSupervisorFilter(supNames){
   return chips;
 }
 
-function buildAmstelTable(supName, clientes){
+// Tabela de checklist de PDVs — genérica, os "flags" (2 a 4 colunas de
+// cobertura) vêm de VOLFUT_MARCAS[marca].flags, porque cada planilha tem um
+// conjunto diferente de colunas de cobertura.
+function buildExecEstrategicaTable(supName, clientes, flags){
   const badge = v => v === 1 ? '<span class="pct-good">✓</span>' : (v === 0 ? '<span class="pct-bad">✗</span>' : '—');
   const rows = clientes.map(c => `<tr>
       <td class="name-col">${c.fantasia}</td>
@@ -3334,9 +3371,7 @@ function buildAmstelTable(supName, clientes){
       <td class="col-canal">${c.canal || '—'}</td>
       <td>${c.matriz_nivel || '—'}</td>
       <td>${c.vendedor_nome || '—'}</td>
-      <td class="num">${badge(c.cob_spin)}</td>
-      <td class="num">${badge(c.cob_craft)}</td>
-      <td class="num">${badge(c.cob_fys_itubaina)}</td>
+      ${flags.map(f => `<td class="num">${badge(c[f.campo])}</td>`).join('')}
       <td class="col-checklist">${c.geladeira_chopeira || '—'}</td>
       <td class="col-checklist">${c.cardapio || '—'}</td>
       <td class="col-checklist">${c.uniforme || '—'}</td>
@@ -3353,10 +3388,10 @@ function buildAmstelTable(supName, clientes){
     </div>
     <div class="section-body">
       <div class="table-scroll">
-        <table class="data amstel-table">
+        <table class="data exec-table">
           <thead><tr>
             <th class="name-col">Cliente</th><th class="col-cidade">Cidade</th><th class="col-canal">Canal</th><th>Matriz</th><th>Vendedor</th>
-            <th>Cob. SPIN</th><th>Cob. Craft</th><th>Cob. FYS/Itub.</th>
+            ${flags.map(f => `<th>${f.titulo}</th>`).join('')}
             <th class="col-checklist">Geladeira/Chopeira</th><th class="col-checklist">Cardápio</th><th class="col-checklist">Uniforme</th><th class="col-checklist">Fachada</th><th class="col-checklist">Contrato</th>
           </tr></thead>
           <tbody>${rows}</tbody>
@@ -3370,29 +3405,37 @@ function renderVolumesFuturosPage(){
   if(!VOLUMES_FUTUROS_DATA){
     return '<div class="section-card"><div class="section-body" style="padding:20px;">Carregando…</div></div>';
   }
-  const { resumo, amstel, datasDisponiveis } = VOLUMES_FUTUROS_DATA;
+  const { resumo, datasDisponiveis } = VOLUMES_FUTUROS_DATA;
   if(!datasDisponiveis.length){
-    return '<div class="sup-header"><h2>Volumes Futuros</h2></div><div class="sup-sub">Nenhum dado importado ainda. Rode <code>scripts/import_volumes_futuros.js --commit</code> e recarregue a página.</div>';
+    return '<div class="sup-header"><h2>Executivos</h2></div><div class="sup-sub">Nenhum dado importado ainda. Rode <code>scripts/import_executivo.js --marca amstel</code> e <code>--marca volume_futuro</code>, e recarregue a página.</div>';
   }
   if(!VOLFUT_DATE || !datasDisponiveis.includes(VOLFUT_DATE)) VOLFUT_DATE = datasDisponiveis[0];
+  if(!VOLFUT_MARCAS[VOLFUT_MARCA]) VOLFUT_MARCA = 'amstel';
+  const marcaCfg = VOLFUT_MARCAS[VOLFUT_MARCA];
+  const estrategica = VOLUMES_FUTUROS_DATA[marcaCfg.campoEstrategica] || [];
+
+  const marcaChips = Object.keys(VOLFUT_MARCAS).map(m =>
+    `<button class="cat-chip ${m===VOLFUT_MARCA?'active':''}" onclick="selectVolFutMarca('${m}')">${VOLFUT_MARCAS[m].label}</button>`
+  ).join('');
+
+  const header = `
+    <div class="sup-header"><h2>Executivos</h2></div>
+    <div class="sup-sub">Acompanhamento executivo por marca — escolha Amstel ou Volume Futuro abaixo.</div>
+    <div class="indic-filtros">${filtroRow('Marca', marcaChips)}</div>
+  `;
 
   const fmtData = d => new Date(d+'T00:00:00').toLocaleDateString('pt-BR');
   const dateChips = datasDisponiveis.map(d =>
     `<button class="cat-chip ${d===VOLFUT_DATE?'active':''}" onclick="selectVolFutDate('${d}')">${fmtData(d)}</button>`
   ).join('');
-  const amstelCount = amstel.filter(a=>a.data_referencia===VOLFUT_DATE).length;
+  const estratCount = estrategica.filter(a=>a.data_referencia===VOLFUT_DATE).length;
   const tabChips = `
     <button class="cat-chip ${VOLFUT_SUBTAB==='resumo'?'active':''}" onclick="selectVolFutSubtab('resumo')">Resumo por Vendedor</button>
-    <button class="cat-chip ${VOLFUT_SUBTAB==='amstel'?'active':''}" onclick="selectVolFutSubtab('amstel')">40 PDVs Amstel (${amstelCount})</button>
+    <button class="cat-chip ${VOLFUT_SUBTAB==='estrategica'?'active':''}" onclick="selectVolFutSubtab('estrategica')">40 PDVs ${marcaCfg.label} (${estratCount})</button>
   `;
 
-  const header = `
-    <div class="sup-header"><h2>Volumes Futuros</h2></div>
-    <div class="sup-sub">Acompanhamento executivo — Cobertura SPIN, Volume Craft+SPIN e Volume NAB, e o checklist dos PDVs estratégicos Amstel.</div>
-  `;
-
-  if(VOLFUT_SUBTAB === 'amstel'){
-    const rowsForDate = amstel.filter(r => r.data_referencia === VOLFUT_DATE);
+  if(VOLFUT_SUBTAB === 'estrategica'){
+    const rowsForDate = estrategica.filter(r => r.data_referencia === VOLFUT_DATE);
     const supNames = [...new Set(rowsForDate.map(r=>r.supervisor_nome).filter(Boolean))].sort(compararSupervisores);
     let html = header + '<div class="indic-filtros">'
       + filtroRow('Data', dateChips) + filtroRow('Aba', tabChips) + filtroRow('Supervisor', buildVolFutSupervisorFilter(supNames))
@@ -3404,23 +3447,22 @@ function renderVolumesFuturosPage(){
 
     const conta = campo => rowsForDate.filter(r => r[campo] === 1).length;
     html += `<div class="sup-sub" style="margin-bottom:16px;">
-      Cobertura: <b>${conta('cob_spin')}/${rowsForDate.length}</b> SPIN ·
-      <b>${conta('cob_craft')}/${rowsForDate.length}</b> Craft ·
-      <b>${conta('cob_fys_itubaina')}/${rowsForDate.length}</b> FYS/Itubaina
+      Cobertura: ${marcaCfg.flags.map(f => `<b>${conta(f.campo)}/${rowsForDate.length}</b> ${f.titulo}`).join(' · ')}
     </div>`;
 
     const supsToShow = (VOLFUT_SUP_FILTER && supNames.includes(VOLFUT_SUP_FILTER)) ? [VOLFUT_SUP_FILTER] : supNames;
     supsToShow.forEach(supName=>{
       const clientes = rowsForDate.filter(r => r.supervisor_nome === supName);
-      if(clientes.length) html += buildAmstelTable(supName, clientes);
+      if(clientes.length) html += buildExecEstrategicaTable(supName, clientes, marcaCfg.flags);
     });
     const semSupervisor = rowsForDate.filter(r => !r.supervisor_nome);
-    if(semSupervisor.length && !VOLFUT_SUP_FILTER) html += buildAmstelTable('(sem supervisor identificado)', semSupervisor);
+    if(semSupervisor.length && !VOLFUT_SUP_FILTER) html += buildExecEstrategicaTable('(sem supervisor identificado)', semSupervisor, marcaCfg.flags);
     return html;
   }
 
-  // sub-aba "resumo" — mesmo motor da aba Indicadores (Volume/Cobertura)
-  const rowsForDate = resumo.filter(r => r.data_referencia === VOLFUT_DATE);
+  // sub-aba "resumo" — mesmo motor da aba Indicadores (Volume/Cobertura),
+  // filtrando a tabela compartilhada pela marca ativa.
+  const rowsForDate = resumo.filter(r => r.data_referencia === VOLFUT_DATE && r.marca === VOLFUT_MARCA);
   const { supMap, colunas } = groupIndicadoresRows(rowsForDate);
   const supNames = [...supMap.keys()].sort(compararSupervisores);
 
@@ -3634,7 +3676,7 @@ function renderAdminPage(){
 
   const header = `
     <div class="sup-header"><h2>Administração</h2></div>
-    <div class="sup-sub">Libera acesso a Volumes Futuros e Remuneração pra pessoas específicas, sem precisar de SQL.</div>
+    <div class="sup-sub">Libera acesso a Executivos e Remuneração pra pessoas específicas, sem precisar de SQL.</div>
   `;
 
   const perfis = typeof ADMIN_PROFILES !== 'undefined' ? ADMIN_PROFILES : null;
@@ -3688,7 +3730,7 @@ function renderAdminPage(){
         <table class="data">
           <thead><tr>
             <th class="name-col">Nome</th><th>Papel</th><th>Time / Vendedor</th>
-            <th style="min-width:120px;">Volumes Futuros</th><th style="min-width:120px;">Remuneração</th>
+            <th style="min-width:120px;">Executivos</th><th style="min-width:120px;">Remuneração</th>
           </tr></thead>
           <tbody>${rows}</tbody>
         </table>

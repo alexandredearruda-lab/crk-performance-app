@@ -188,23 +188,27 @@ async function loadDataFromDB(){
     if(!INDICADORES_DATA) INDICADORES_DATA = { volume:[], cobertura:[], heishop:[], clientesSemCompra:[], datasDisponiveis:[] };
   }
 
-  // Volumes Futuros (schema_volumes_futuros.sql) — só admin/quem tem
-  // pode_ver_executivo enxerga algo aqui (RLS); pros demais vem vazio, sem
-  // erro. Independente do resto, igual Indicadores.
+  // Executivos (schema_executivo.sql) — só admin/quem tem pode_ver_executivo
+  // enxerga algo aqui (RLS); pros demais vem vazio, sem erro. Independente do
+  // resto, igual Indicadores. 2 marcas (amstel / volume_futuro) dividem a
+  // mesma tabela de resumo (via coluna "marca") mas têm cada uma sua própria
+  // tabela de checklist de PDVs, porque as colunas do checklist são
+  // diferentes em cada planilha.
   try{
     const orderById = q => q.order('id', { ascending: true });
-    const [volFutRows, amstelRows] = await Promise.all([
+    const [volFutRows, amstelRows, volFutEstratRows] = await Promise.all([
       fetchAllRows('volumes_futuros_indicadores', orderById),
       fetchAllRows('amstel_estrategico', orderById),
+      fetchAllRows('volumefuturo_estrategico', orderById),
     ]);
-    const datasDisponiveis = [...new Set([...volFutRows, ...amstelRows].map(r => r.data_referencia))].sort().reverse();
-    VOLUMES_FUTUROS_DATA = { resumo: volFutRows, amstel: amstelRows, datasDisponiveis };
+    const datasDisponiveis = [...new Set([...volFutRows, ...amstelRows, ...volFutEstratRows].map(r => r.data_referencia))].sort().reverse();
+    VOLUMES_FUTUROS_DATA = { resumo: volFutRows, amstel: amstelRows, volumeFuturo: volFutEstratRows, datasDisponiveis };
     if(!VOLFUT_DATE || !datasDisponiveis.includes(VOLFUT_DATE)){
       VOLFUT_DATE = datasDisponiveis[0] || null;
     }
   }catch(e){
     console.error(e);
-    if(!VOLUMES_FUTUROS_DATA) VOLUMES_FUTUROS_DATA = { resumo:[], amstel:[], datasDisponiveis:[] };
+    if(!VOLUMES_FUTUROS_DATA) VOLUMES_FUTUROS_DATA = { resumo:[], amstel:[], volumeFuturo:[], datasDisponiveis:[] };
   }
 
   // Remuneração (schema_remuneracao.sql) — dado de salário/comissão, acesso
