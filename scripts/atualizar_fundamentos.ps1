@@ -9,7 +9,11 @@ $hoje = Get-Date
 $mesNome = $mesesPt[$hoje.Month - 1]
 $mesNum = '{0:D2}' -f $hoje.Month
 $ano = $hoje.Year
-$dataReferencia = $hoje.ToString('yyyy-MM-dd')
+# Sempre o 1º dia do mês, não a data de hoje: se o import rodar mais de uma
+# vez no mesmo mês (ex: pra corrigir algo), tem que cair na MESMA
+# data_referencia — senão duplica o mês no seletor do painel (cada rodada
+# criaria uma linha nova em vez de substituir a anterior).
+$dataReferencia = "$ano-$mesNum-01"
 
 $pastaRelatorio = "C:\Users\alexandre.arruda\CRK Bebidas\Vendas - Documentos\ALEXANDRE - VENDAS\Relatorios $ano\$mesNome"
 $arquivo = Join-Path $pastaRelatorio "$mesNum - Fundamentos Comissão e Produtividade - $mesNome.xlsm"

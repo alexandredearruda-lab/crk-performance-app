@@ -7,7 +7,11 @@ $ErrorActionPreference = 'Stop'
 $hoje = Get-Date
 $mesNum = '{0:D2}' -f $hoje.Month
 $ano = $hoje.Year
-$dataReferencia = $hoje.ToString('yyyy-MM-dd')
+# Sempre o 1º dia do mês, não a data de hoje: se o import rodar mais de uma
+# vez no mesmo mês (ex: pra corrigir algo), tem que cair na MESMA
+# data_referencia — senão duplica o mês no seletor do painel (cada rodada
+# criaria uma linha nova em vez de substituir a anterior).
+$dataReferencia = "$ano-$mesNum-01"
 $mesesPt = @('Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro')
 $mesNome = $mesesPt[$hoje.Month - 1]
 

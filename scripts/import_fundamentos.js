@@ -12,9 +12,11 @@
 // resumo, e NÃO grava nada no banco. Só grava de verdade quando você confere o
 // resumo e roda de novo com --commit.
 //
-// Idempotência: ao gravar (--commit), o script apaga antes todas as linhas já
-// existentes com a mesma data_referencia em cada tabela, e insere o conjunto
-// novo. Rodar o mesmo arquivo duas vezes não duplica nada.
+// Idempotência: os indicadores são mensais, então data_referencia é sempre
+// normalizada pro dia 1º do mês (--data-referencia 2026-08-20 vira 2026-08-01).
+// Ao gravar (--commit), o script apaga antes todas as linhas daquele MÊS em
+// cada tabela (qualquer dia) e insere o conjunto novo. Rodar o import várias
+// vezes no mesmo mês não duplica o mês no seletor do painel.
 //
 // A "Data:" de cada aba na planilha é uma fórmula (=TODAY()) e sempre mostra a
 // data de hoje, não o mês real do arquivo — por isso data_referencia é sempre
@@ -243,9 +245,17 @@ function imprimirResumo(nomeAba, tabela, resultado) {
   }
 }
 
+function proximoMes(dataReferencia) {
+  const [ano, mes] = dataReferencia.split('-').map(Number);
+  return mes === 12 ? `${ano + 1}-01-01` : `${ano}-${String(mes + 1).padStart(2, '0')}-01`;
+}
+
 async function commitTabela(db, tabela, rows, dataReferencia) {
-  console.log(`\nApagando linhas existentes de ${tabela} para data_referencia=${dataReferencia}...`);
-  const { error: delErr } = await db.from(tabela).delete().eq('data_referencia', dataReferencia);
+  const fimMes = proximoMes(dataReferencia);
+  console.log(`\nApagando linhas existentes de ${tabela} no mês ${dataReferencia.slice(0, 7)} (qualquer dia)...`);
+  const { error: delErr } = await db.from(tabela).delete()
+    .gte('data_referencia', dataReferencia)
+    .lt('data_referencia', fimMes);
   if (delErr) throw new Error(`Falha ao apagar ${tabela}: ${delErr.message}`);
 
   let inserted = 0;
@@ -265,6 +275,11 @@ async function main() {
     console.error('Uso: node import_fundamentos.js --arquivo "<caminho.xlsm>" --data-referencia YYYY-MM-DD [--commit]');
     console.error('--data-referencia é obrigatório (a célula "Data:" da planilha é uma fórmula TODAY(), não dá pra usar ela).');
     process.exit(1);
+  }
+  const dataInformada = args.dataReferencia;
+  args.dataReferencia = dataInformada.slice(0, 7) + '-01';
+  if (args.dataReferencia !== dataInformada) {
+    console.log(`data_referencia normalizada pro 1º dia do mês: ${dataInformada} -> ${args.dataReferencia}`);
   }
   if (!args.arquivo) {
     console.error('Uso: node import_fundamentos.js --arquivo "<caminho.xlsm>" --data-referencia YYYY-MM-DD [--commit]');
