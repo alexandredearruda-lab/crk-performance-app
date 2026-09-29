@@ -26,6 +26,10 @@ let NECESSIDADE_DIA_ROWS = [];     // linhas de necessidade_dia do vendedor+dia 
 let NECESSIDADE_SEMANA_ROWS = [];  // linhas de necessidade_dia da semana atual inteira (Seg-Sex), pro resumo
 let NECESSIDADE_CAT_SEMANA_ROWS = []; // idem, de necessidade_dia_categoria (desafios lançados com categoria), pro resumo
 let NECESSIDADE_CAT_ROWS = [];     // linhas de necessidade_dia_categoria do vendedor+dia selecionados (todas as categorias)
+// Histórico da Necessidade do Dia (gráfico dia a dia) — carregado sob demanda
+// na 1ª vez que a tela abre, não no loadDataFromDB inicial, pra não pesar o
+// login de quem nunca entra nessa tela. rows/catRows null = ainda não buscou.
+let NECESSIDADE_HIST = { dias: 30, rows: null, catRows: null, loading: false, erro: null };
 // Necessidade do Dia usa o nome curto do ERP (Base_Clientes.xlsx) pro
 // vendedor, diferente do nome completo em CURRENT_VENDEDOR_NOME (planilha
 // Fundamentos) — por isso essa permissão compara o vendedor por código, não
@@ -291,6 +295,8 @@ async function loadDataFromDB(){
     CLIENTES_MASTER = clienteRows;
     NECESSIDADE_SEMANA_ROWS = necessidadeSemanaRows;
     NECESSIDADE_CAT_SEMANA_ROWS = necessidadeCatSemanaRows;
+    // histórico já aberto alguma vez: atualiza junto (em segundo plano)
+    if(NECESSIDADE_HIST.rows !== null) loadNecessidadeHistorico();
     const SPECIAL_VIEWS = ['COMMITMENTS','INCENTIVO','INDICADORES','VOLUMES_FUTUROS','REMUNERACAO','ADMIN'];
     if(!ACTIVE_SUP || (!SPECIAL_VIEWS.includes(ACTIVE_SUP) && !DATA.supervisors.find(s => s.sheetName === ACTIVE_SUP))){
       ACTIVE_SUP = DATA.supervisors[0].sheetName;
@@ -405,6 +411,54 @@ async function loadNecessidadeDia(vendedorCodigo, dataStr){
   render();
 }
 
+// Data local AAAA-MM-DD (toISOString usa UTC e vira o dia seguinte depois das 21h no Brasil).
+function localDateStr(d){
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+
+// Busca os últimos NECESSIDADE_HIST.dias dias (até a sexta da semana atual,
+// pra incluir desafios já lançados pra frente). Mantém as linhas antigas na
+// tela enquanto recarrega, pra não piscar "carregando" a cada polling.
+async function loadNecessidadeHistorico(){
+  if(NECESSIDADE_HIST.loading) return;
+  NECESSIDADE_HIST.loading = true;
+  const dias = NECESSIDADE_HIST.dias;
+  try{
+    const hoje = new Date();
+    const inicio = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate() - (dias - 1));
+    const monday = mondayOfCurrentWeek();
+    const friday = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + 4);
+    const fim = friday > hoje ? friday : hoje;
+    const iniStr = localDateStr(inicio), fimStr = localDateStr(fim);
+    const [rows, catRows] = await Promise.all([
+      fetchAllRows('necessidade_dia', q => q.gte('data', iniStr).lte('data', fimStr)),
+      fetchAllRows('necessidade_dia_categoria', q => q.gte('data', iniStr).lte('data', fimStr)),
+    ]);
+    NECESSIDADE_HIST.loading = false;
+    // trocou o período no meio da busca — descarta e busca de novo
+    if(NECESSIDADE_HIST.dias !== dias) return loadNecessidadeHistorico();
+    NECESSIDADE_HIST.rows = rows;
+    NECESSIDADE_HIST.catRows = catRows;
+    NECESSIDADE_HIST.erro = null;
+  }catch(e){
+    console.error(e);
+    NECESSIDADE_HIST.loading = false;
+    NECESSIDADE_HIST.rows = NECESSIDADE_HIST.rows || [];
+    NECESSIDADE_HIST.catRows = NECESSIDADE_HIST.catRows || [];
+    NECESSIDADE_HIST.erro = e.message || String(e);
+  }
+  render();
+}
+
+// Espelha um valor salvo numa lista em cache (semana ou histórico): atualiza
+// a linha se existir, senão acrescenta. `chave` são os campos que identificam a linha.
+function espelharNecessidade(lista, chave, field, num){
+  if(!Array.isArray(lista)) return;
+  const existing = lista.find(r => Object.keys(chave).every(k => r[k] === chave[k]));
+  if(existing){ existing[field] = num; return; }
+  lista.push({ ...chave, valor_desafio: field==='valor_desafio'?num:null, valor_real: field==='valor_real'?num:null });
+}
+
 async function saveNecessidadeField(clienteId, vendedorCodigo, supervisorNome, vendedorNome, dataStr, field, valor){
   if(!canEditNecessidadeDia(supervisorNome, vendedorCodigo)) return;
   if(field !== 'valor_desafio' && field !== 'valor_real') return;
@@ -428,10 +482,10 @@ async function saveNecessidadeField(clienteId, vendedorCodigo, supervisorNome, v
     if(error) throw error;
     if(existing) existing[field] = num;
     else NECESSIDADE_DIA_ROWS.push({ vendedor_codigo: vendedorCodigo, cliente_id: clienteId, data: dataStr, valor_desafio: field==='valor_desafio'?num:null, valor_real: field==='valor_real'?num:null });
-    // espelha a mudança no cache da semana (resumo), pra atualizar na hora sem esperar o polling
-    const existingSemana = NECESSIDADE_SEMANA_ROWS.find(r => r.cliente_id === clienteId && r.vendedor_codigo === vendedorCodigo && r.data === dataStr);
-    if(existingSemana) existingSemana[field] = num;
-    else NECESSIDADE_SEMANA_ROWS.push({ vendedor_codigo: vendedorCodigo, cliente_id: clienteId, data: dataStr, valor_desafio: field==='valor_desafio'?num:null, valor_real: field==='valor_real'?num:null });
+    // espelha a mudança no cache da semana (resumo) e no histórico, pra atualizar na hora sem esperar o polling
+    const chave = { vendedor_codigo: vendedorCodigo, cliente_id: clienteId, data: dataStr };
+    espelharNecessidade(NECESSIDADE_SEMANA_ROWS, chave, field, num);
+    espelharNecessidade(NECESSIDADE_HIST.rows, chave, field, num);
     render();
   }catch(e){
     console.error(e);
@@ -485,11 +539,10 @@ async function saveNecessidadeCategoriaField(clienteId, vendedorCodigo, supervis
     if(error) throw error;
     if(existing) existing[field] = num;
     else NECESSIDADE_CAT_ROWS.push({ vendedor_codigo: vendedorCodigo, cliente_id: clienteId, data: dataStr, categoria, tipo_indicador: tipoIndicador, valor_desafio: field==='valor_desafio'?num:null, valor_real: field==='valor_real'?num:null });
-    // espelha a mudança no cache da semana (resumo), pra atualizar na hora sem esperar o polling
-    const existingSemana = NECESSIDADE_CAT_SEMANA_ROWS.find(r => r.cliente_id === clienteId && r.vendedor_codigo === vendedorCodigo
-      && r.data === dataStr && r.categoria === categoria && r.tipo_indicador === tipoIndicador);
-    if(existingSemana) existingSemana[field] = num;
-    else NECESSIDADE_CAT_SEMANA_ROWS.push({ vendedor_codigo: vendedorCodigo, cliente_id: clienteId, data: dataStr, categoria, tipo_indicador: tipoIndicador, valor_desafio: field==='valor_desafio'?num:null, valor_real: field==='valor_real'?num:null });
+    // espelha a mudança no cache da semana (resumo) e no histórico, pra atualizar na hora sem esperar o polling
+    const chave = { vendedor_codigo: vendedorCodigo, cliente_id: clienteId, data: dataStr, categoria, tipo_indicador: tipoIndicador };
+    espelharNecessidade(NECESSIDADE_CAT_SEMANA_ROWS, chave, field, num);
+    espelharNecessidade(NECESSIDADE_HIST.catRows, chave, field, num);
     render();
   }catch(e){
     console.error(e);

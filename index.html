@@ -356,13 +356,63 @@
     table.data{ font-size:12px; }
   }
 
+  /* ---------- Necessidade do Dia ----------
+     Hierarquia: Desafio (o que foi planejado) sempre em azul --chart-meta,
+     Real (o que foi vendido) sempre em verde --copper — mesmo par Meta/Real
+     dos gráficos de Indicadores. % de atingimento usa as cores de status. */
+  .nd-overline{
+    font-family:'IBM Plex Mono',monospace; font-size:10.5px; letter-spacing:.12em;
+    text-transform:uppercase; color:var(--muted); margin:28px 0 12px;
+    display:flex; align-items:center; gap:10px;
+  }
+  .nd-overline::after{ content:''; flex:1; height:1px; background:var(--line); }
+  .nd-overline:first-child{ margin-top:6px; }
+  .kpi-card.nd-kpi-desafio{ border-top:3px solid var(--chart-meta); }
+  .kpi-card.nd-kpi-real{ border-top:3px solid var(--copper); }
+  .nd-swatch{ width:9px; height:9px; border-radius:2px; display:inline-block; margin-right:5px; vertical-align:-1px; }
+  .nd-swatch.desafio{ background:var(--chart-meta); }
+  .nd-swatch.real{ background:var(--copper); }
+  .nd-status{
+    display:inline-block; font-family:'Inter',sans-serif; font-size:10.5px; font-weight:700;
+    padding:2px 8px; border-radius:20px; margin-left:6px; vertical-align:middle; line-height:1.4;
+  }
+  .nd-status.good{ background:var(--good-bg); color:var(--good); }
+  .nd-status.warn{ background:var(--warn-bg); color:var(--warn); }
+  .nd-status.bad{ background:var(--bad-bg); color:var(--bad-text); }
+  .nd-vendor-bar{
+    display:flex; align-items:center; gap:8px 14px; flex-wrap:wrap;
+    background:#fff; border:1px solid var(--line); border-radius:12px;
+    padding:12px 16px; margin:4px 0 18px;
+  }
+  .nd-vendor-bar .nome{ font-family:'Fraunces',serif; font-size:18px; font-weight:600; }
+  .nd-vendor-bar .sup{ color:var(--muted); font-size:12.5px; }
+  .nd-vendor-bar .btn-ghost{ padding:6px 12px; font-size:12px; }
+  .nd-day-chip .dt{ font-family:'IBM Plex Mono',monospace; font-size:10.5px; opacity:.7; margin-left:4px; }
+  .nd-day-chip.hoje:not(.active){ border-color:var(--copper); color:var(--ink); font-weight:600; }
+  .nd-legend{ display:flex; gap:16px; flex-wrap:wrap; font-size:12px; color:var(--muted); padding:14px 18px 0; }
+  .nd-chart{ padding:6px 18px 4px; }
+  .nd-chart svg .nd-hit:hover, .nd-chart svg .nd-hit:focus{ fill:var(--paper-2); outline:none; }
+  .nd-empty{ padding:18px; color:var(--muted); font-size:13px; }
+  .nd-link{ all:unset; cursor:pointer; color:var(--copper); font-weight:600; font-size:12px; }
+  .nd-link:hover{ text-decoration:underline; }
+  .indic-filtros.nd-filtros{ margin-bottom:6px; }
+
+  @media (max-width: 860px){
+    /* 4 KPIs em 2x2 no celular, em vez de 4 cartões empilhados */
+    .nd-kpis .kpi-card{ flex:1 1 calc(50% - 10px); min-width:0; }
+    .nd-legend{ padding:12px 14px 0; }
+    .nd-chart{ padding:6px 8px 4px; }
+    .nd-filtros .filtro-row{ flex-direction:column; align-items:stretch; gap:6px; }
+    .nd-filtros .filtro-label{ padding-top:0; }
+  }
+
   /* Necessidade do Dia: em telas estreitas, some com Cidade/Canal pra Cliente,
      Desafio e Real caberem sem precisar rolar a tabela de lado — é o fluxo
      mais usado no celular. */
   @media (max-width: 640px){
     .necessidade-clientes-table .col-cidade,
     .necessidade-clientes-table .col-canal{ display:none; }
-    .necessidade-clientes-table input{ font-size:16px; } /* evita zoom automático do Safari */
+    .necessidade-clientes-table input{ font-size:16px; min-height:36px; } /* evita zoom automático do Safari; alvo de toque maior */
     /* coluna Cliente fixa (sticky) estava tomando quase metade da tela e
        espremendo Vol. Desafio/Vol. Real — estreita e trunca com "…" */
     .necessidade-clientes-table .name-col{
@@ -501,6 +551,10 @@
 ===================================================================== */
 let DATA = null;          // { meta, supervisors:[...] }
 let ACTIVE_SUP = 'INDICADORES'; // sheetName ativo, ou 'INDICADORES'/'COMMITMENTS'/'INCENTIVO'
+// Tela "Incentivo" escondida de todo mundo (admin incluso) por enquanto. A
+// tela, o import e a tabela `incentivos` continuam intactos — pra reativar,
+// é só trocar pra true.
+const INCENTIVO_VISIVEL = false;
 let SEARCH_TERM = '';
 const SECTION_LABELS = ['Volume (HL)', 'Cobertura (PDVs positivados)', 'Outros indicadores'];
 const SORT_STATE = {}; // { "sheetName:sectionIdx": 'asc'|'desc'|null }
@@ -1464,6 +1518,255 @@ function renderIncentivoPage(){
   return html;
 }
 
+/* ---------- Necessidade do Dia — peças visuais compartilhadas ---------- */
+const ndFmt = v => Number(v || 0).toLocaleString('pt-BR', {maximumFractionDigits:2});
+const ndPct = (desafio, real) => desafio > 0 ? Math.round((real / desafio) * 100) : null;
+// status sempre com texto junto da cor (não depender só de verde/vermelho)
+function ndStatus(pct){
+  if(pct === null) return null;
+  if(pct >= 90) return { cls:'good', txt:'no alvo' };
+  if(pct >= 60) return { cls:'warn', txt:'atenção' };
+  return { cls:'bad', txt:'abaixo' };
+}
+function ndPctCell(pct){
+  if(pct === null) return '<td class="num">—</td>';
+  const cls = pct >= 90 ? 'pct-good' : pct >= 60 ? 'pct-warn' : 'pct-bad';
+  const w = Math.max(0, Math.min(100, pct));
+  return `<td class="num ${cls}"><div class="pct-cell"><span class="pct-bar"><span style="width:${w}%"></span></span>${pct}%</div></td>`;
+}
+const ndThDesafio = (extra) => `<th${extra||''}><span class="nd-swatch desafio"></span>Desafio</th>`;
+const ndThReal = (extra) => `<th${extra||''}><span class="nd-swatch real"></span>Real</th>`;
+
+// 4 números-chave: o que foi planejado, o que foi vendido, a razão e o que falta lançar
+function ndKpis(t, contexto){
+  const pct = ndPct(t.desafio, t.real);
+  const st = ndStatus(pct);
+  return `<div class="kpi-row nd-kpis">
+    <div class="kpi-card nd-kpi-desafio">
+      <div class="kpi-label"><span class="nd-swatch desafio"></span>Desafio · planejado</div>
+      <div class="kpi-value">${ndFmt(t.desafio)}</div>
+      <div class="kpi-sub">${contexto}</div>
+    </div>
+    <div class="kpi-card nd-kpi-real">
+      <div class="kpi-label"><span class="nd-swatch real"></span>Real · vendido</div>
+      <div class="kpi-value">${ndFmt(t.real)}</div>
+      <div class="kpi-sub">${contexto}</div>
+    </div>
+    <div class="kpi-card ${st ? 'kpi-'+st.cls : ''}">
+      <div class="kpi-label">% atingido</div>
+      <div class="kpi-value">${pct === null ? '—' : pct + '%'}${st ? `<span class="nd-status ${st.cls}">${st.txt}</span>` : ''}</div>
+      <div class="kpi-sub">Real ÷ Desafio</div>
+    </div>
+    <div class="kpi-card ${t.pend > 0 ? 'kpi-bad' : ''}">
+      <div class="kpi-label">Pendências</div>
+      <div class="kpi-value">${t.pend}</div>
+      <div class="kpi-sub">cliente(s) com Desafio e sem Real</div>
+    </div>
+  </div>`;
+}
+
+/* ---------- Necessidade do Dia — histórico dia a dia ---------- */
+let NECESSIDADE_HIST_SUP = null; // filtro de supervisor do histórico (null = todos)
+let NECESSIDADE_HIST_CAT = null; // null = Desafio/Real geral; senão uma categoria (do indicador Volume/Cobertura ativo)
+function setNecessidadeHistDias(d){ NECESSIDADE_HIST.dias = d; loadNecessidadeHistorico(); render(); }
+function setNecessidadeHistSup(s){ NECESSIDADE_HIST_SUP = s; render(); }
+function setNecessidadeHistCat(c){ NECESSIDADE_HIST_CAT = c; render(); }
+
+// Soma por dia (dias úteis do período, mais fim de semana só se tiver
+// lançamento) e por vendedor, no escopo pedido (vendedor, supervisor ou tudo).
+function ndSerieHistorico(vendedorCodigo, supervisorNome){
+  const h = NECESSIDADE_HIST;
+  const clientesById = new Map((typeof CLIENTES_MASTER !== 'undefined' ? CLIENTES_MASTER : []).map(c => [c.id, c]));
+  const cat = NECESSIDADE_HIST_CAT;
+  const tipo = NECESSIDADE_TIPO_RESUMO;
+  const fonte = cat
+    ? (h.catRows || []).filter(r => r.categoria === cat && r.tipo_indicador === tipo)
+    : (h.rows || []);
+  const tem = v => v !== null && v !== undefined;
+  const porDia = new Map();
+  const porVend = new Map();
+  fonte.forEach(r=>{
+    if(vendedorCodigo !== null && String(r.vendedor_codigo) !== String(vendedorCodigo)) return;
+    const cli = clientesById.get(r.cliente_id);
+    if(!cli) return;
+    if(supervisorNome && cli.supervisor_nome !== supervisorNome) return;
+    if(!tem(r.valor_desafio) && !tem(r.valor_real)) return;
+    const pend = tem(r.valor_desafio) && !tem(r.valor_real) ? 1 : 0;
+    if(!porDia.has(r.data)) porDia.set(r.data, { desafio:0, real:0, pend:0 });
+    const d = porDia.get(r.data);
+    d.desafio += Number(r.valor_desafio) || 0; d.real += Number(r.valor_real) || 0; d.pend += pend;
+    const vk = String(r.vendedor_codigo);
+    if(!porVend.has(vk)) porVend.set(vk, { codigo: r.vendedor_codigo, nome: cli.vendedor_nome, supervisorNome: cli.supervisor_nome, desafio:0, real:0, pend:0, dias: new Set() });
+    const v = porVend.get(vk);
+    v.desafio += Number(r.valor_desafio) || 0; v.real += Number(r.valor_real) || 0; v.pend += pend; v.dias.add(r.data);
+  });
+
+  const hoje = new Date();
+  const hojeStr = localDateStr(hoje);
+  const inicio = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate() - (h.dias - 1));
+  const monday = mondayOfCurrentWeek();
+  const friday = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + 4);
+  const fim = friday > hoje ? friday : hoje;
+  const pontos = [];
+  for(let d = new Date(inicio); d <= fim; d.setDate(d.getDate() + 1)){
+    const ds = localDateStr(d);
+    const dia = porDia.get(ds);
+    const fimDeSemana = d.getDay() === 0 || d.getDay() === 6;
+    if(fimDeSemana && !dia) continue;
+    if(ds > hojeStr && !dia) continue; // dia futuro sem desafio lançado ainda
+    pontos.push({ data: ds, hoje: ds === hojeStr, ...(dia || { desafio:0, real:0, pend:0 }), vazio: !dia });
+  }
+  return { pontos, porVend };
+}
+
+function renderNecessidadeHistChart(pontos){
+  const compacto = window.innerWidth < 640;
+  const W = compacto ? 360 : 720, H = compacto ? 190 : 220;
+  const padL = 44, padR = 8, padT = 12, padB = 26;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const n = pontos.length;
+  const maxRaw = Math.max(1, ...pontos.map(p => Math.max(p.desafio, p.real)));
+  // teto "redondo" pro eixo (1, 2, 2.5 ou 5 x 10^k)
+  const mag = Math.pow(10, Math.floor(Math.log10(maxRaw)));
+  const maxVal = [1, 2, 2.5, 5, 10].map(m => m * mag).find(v => v >= maxRaw * 1.05) || maxRaw * 1.1;
+  const groupW = plotW / n;
+  const gap = groupW > 14 ? 2 : 1;
+  const barW = Math.max(2, Math.min(14, (groupW - gap) * 0.38));
+  const yBase = padT + plotH;
+  const y = v => padT + plotH - (Math.min(v, maxVal) / maxVal) * plotH;
+  const mono = `font-family="'IBM Plex Mono',monospace"`;
+
+  let grid = '';
+  for(let s = 0; s <= 4; s++){
+    const v = maxVal * s / 4, yy = y(v).toFixed(1);
+    grid += `<line x1="${padL}" y1="${yy}" x2="${W-padR}" y2="${yy}" stroke="var(--line)" stroke-width="1" ${s===0?'':'stroke-dasharray="2 3"'}/>`;
+    grid += `<text x="${padL-6}" y="${(+yy+3.5).toFixed(1)}" text-anchor="end" font-size="10" fill="var(--muted)" ${mono}>${fmtInt(v)}</text>`;
+  }
+
+  // alvo de hover = coluna inteira do dia (bem maior que as barras finas)
+  const passoLabel = Math.max(1, Math.ceil(n / (compacto ? 6 : 12)));
+  let hits = '', bars = '', labels = '';
+  pontos.forEach((p, i)=>{
+    const x0 = padL + groupW * i;
+    const cx = x0 + groupW / 2;
+    const pct = ndPct(p.desafio, p.real);
+    const titulo = p.vazio
+      ? `${fmtDataLonga(p.data)} — sem lançamento`
+      : `${fmtDataLonga(p.data)} — Desafio ${ndFmt(p.desafio)} · Real ${ndFmt(p.real)}${pct!==null?' · '+pct+'%':''}${p.pend?' · '+p.pend+' pend.':''}`;
+    hits += `<rect class="nd-hit" x="${x0.toFixed(1)}" y="${padT}" width="${groupW.toFixed(1)}" height="${plotH}" fill="transparent" tabindex="0" role="img" aria-label="${titulo}"><title>${titulo}</title></rect>`;
+    const dPath = roundedTopBarPath(cx - barW - gap/2, yBase, y(p.desafio), barW, 3);
+    const rPath = roundedTopBarPath(cx + gap/2, yBase, y(p.real), barW, 3);
+    if(dPath) bars += `<path d="${dPath}" fill="var(--chart-meta)" pointer-events="none"/>`;
+    if(rPath) bars += `<path d="${rPath}" fill="var(--copper)" pointer-events="none"/>`;
+    if(p.hoje || i % passoLabel === 0){
+      labels += `<text x="${cx.toFixed(1)}" y="${H-8}" text-anchor="middle" font-size="10" ${mono} fill="${p.hoje?'var(--ink)':'var(--muted)'}" font-weight="${p.hoje?700:400}">${p.hoje?'hoje':fmtDataCurta(p.data)}</text>`;
+    }
+  });
+
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%; height:auto; display:block;" role="img" aria-label="Desafio e Real por dia">
+    ${grid}${hits}${bars}${labels}
+  </svg>`;
+}
+
+// escopo: vendedorCodigo (tela do vendedor) ou null (visão do time/empresa)
+function renderNecessidadeHistorico(vendedorCodigo){
+  const h = NECESSIDADE_HIST;
+  if(h.rows === null){
+    if(!h.loading) setTimeout(loadNecessidadeHistorico, 0);
+    return '<div class="section-card"><div class="nd-empty">Carregando histórico…</div></div>';
+  }
+
+  const tipoLabel = NECESSIDADE_TIPO_RESUMO === 'volume' ? 'Volume' : 'Cobertura';
+  const catsDisponiveis = [...new Set((h.catRows || []).filter(r => r.tipo_indicador === NECESSIDADE_TIPO_RESUMO).map(r => r.categoria))].sort();
+  if(NECESSIDADE_HIST_CAT && !catsDisponiveis.includes(NECESSIDADE_HIST_CAT)) NECESSIDADE_HIST_CAT = null;
+  const supervisores = vendedorCodigo === null ? [...necessidadeVendedoresPorSupervisor().keys()].sort() : [];
+  if(NECESSIDADE_HIST_SUP && !supervisores.includes(NECESSIDADE_HIST_SUP)) NECESSIDADE_HIST_SUP = null;
+
+  const q = s => String(s).replace(/'/g, "\\'");
+  const chip = (ativo, onclick, txt) => `<button class="cat-chip ${ativo?'active':''}" onclick="${onclick}">${txt}</button>`;
+  let filtros = filtroRow('Período', [14, 30, 90].map(d => chip(h.dias === d, `setNecessidadeHistDias(${d})`, d === 14 ? '2 semanas' : d + ' dias')).join(''));
+  if(supervisores.length > 1){
+    filtros += filtroRow('Supervisor', chip(!NECESSIDADE_HIST_SUP, 'setNecessidadeHistSup(null)', 'Todos')
+      + supervisores.map(s => chip(NECESSIDADE_HIST_SUP === s, `setNecessidadeHistSup('${q(s)}')`, s)).join(''));
+  }
+  if(catsDisponiveis.length){
+    filtros += filtroRow('Categoria', chip(!NECESSIDADE_HIST_CAT, 'setNecessidadeHistCat(null)', 'Geral')
+      + catsDisponiveis.map(c => chip(NECESSIDADE_HIST_CAT === c, `setNecessidadeHistCat('${q(c)}')`, prettyLabel(c) + ' · ' + tipoLabel)).join(''));
+  }
+
+  const { pontos, porVend } = ndSerieHistorico(vendedorCodigo, NECESSIDADE_HIST_SUP);
+  const comDado = pontos.filter(p => !p.vazio);
+  const tot = comDado.reduce((a, p) => ({ desafio: a.desafio + p.desafio, real: a.real + p.real, pend: a.pend + p.pend }), { desafio:0, real:0, pend:0 });
+  const escopoTxt = vendedorCodigo !== null ? 'deste vendedor' : (NECESSIDADE_HIST_SUP ? 'do time ' + NECESSIDADE_HIST_SUP : 'de todos os times visíveis');
+  const serieTxt = NECESSIDADE_HIST_CAT ? prettyLabel(NECESSIDADE_HIST_CAT) + ' (' + tipoLabel + ')' : 'Desafio/Real geral';
+  const atualizando = h.loading ? ' · atualizando…' : '';
+  const erro = h.erro ? `<div class="nd-empty" style="color:var(--bad-text);">Não foi possível carregar o histórico: ${h.erro}</div>` : '';
+
+  let corpo;
+  if(!comDado.length){
+    corpo = `<div class="nd-empty">Nenhum lançamento ${escopoTxt} nos últimos ${h.dias} dias (${serieTxt}).</div>`;
+  } else {
+    const pctTot = ndPct(tot.desafio, tot.real);
+    const stTot = ndStatus(pctTot);
+    const tabelaDias = `<table class="data">
+      <thead><tr><th class="name-col">Dia</th>${ndThDesafio()}${ndThReal()}<th>%</th><th>Pend.</th></tr></thead>
+      <tbody>${comDado.slice().reverse().map(p => `<tr><td class="name-col">${fmtDataLonga(p.data)}${p.hoje?' · hoje':''}</td><td class="num">${ndFmt(p.desafio)}</td><td class="num">${ndFmt(p.real)}</td>${ndPctCell(ndPct(p.desafio, p.real))}<td class="num">${p.pend || '—'}</td></tr>`).join('')}</tbody>
+    </table>`;
+    corpo = `
+      <div class="nd-legend">
+        <span><span class="nd-swatch desafio"></span>Desafio (planejado)</span>
+        <span><span class="nd-swatch real"></span>Real (vendido)</span>
+        <span style="margin-left:auto;">Período: <b style="color:var(--ink);">${ndFmt(tot.desafio)}</b> x <b style="color:var(--ink);">${ndFmt(tot.real)}</b>${pctTot!==null?` · ${pctTot}%<span class="nd-status ${stTot.cls}">${stTot.txt}</span>`:''}</span>
+      </div>
+      <div class="nd-chart">${renderNecessidadeHistChart(pontos)}</div>
+      <div style="padding:0 18px 14px;">
+        <a href="#" onclick="var d=this.nextElementSibling; var h=(d.style.display==='none'||!d.style.display); d.style.display=h?'block':'none'; this.textContent=h?'Esconder tabela':'Ver dia a dia em tabela'; return false;" style="font-size:12px;">Ver dia a dia em tabela</a>
+        <div class="table-scroll" style="display:none; margin-top:4px;">${tabelaDias}</div>
+      </div>`;
+  }
+
+  let html = `<div class="indic-filtros nd-filtros">${filtros}</div>${erro}
+    <div class="section-card">
+      <div class="section-head" onclick="toggleSection(this)">
+        <span class="chev">▾</span>
+        <h3>Evolução dia a dia — ${serieTxt}</h3>
+        <span class="n">últimos ${h.dias} dias · ${comDado.length} dia(s) com lançamento${atualizando}</span>
+      </div>
+      <div class="section-body">${corpo}</div>
+    </div>`;
+
+  // Ranking do período por vendedor — só na visão do time/empresa
+  if(vendedorCodigo === null && porVend.size){
+    const vendRows = [...porVend.values()]
+      .sort((a, b) => (ndPct(b.desafio, b.real) ?? -1) - (ndPct(a.desafio, a.real) ?? -1) || a.nome.localeCompare(b.nome))
+      .map(v => `<tr>
+        <td class="name-col"><button class="nd-link" onclick="selecionarVendedorNecessidade('${q(v.codigo)}','${q(v.nome)}','${q(v.supervisorNome)}')">${v.nome}</button></td>
+        <td style="text-align:left; color:var(--muted);">${v.supervisorNome}</td>
+        <td class="num">${v.dias.size}</td>
+        <td class="num">${ndFmt(v.desafio)}</td><td class="num">${ndFmt(v.real)}</td>
+        ${ndPctCell(ndPct(v.desafio, v.real))}
+        <td class="num">${v.pend ? `<span class="pct-bad">${v.pend} pend.</span>` : '—'}</td>
+      </tr>`).join('');
+    html += `
+    <div class="section-card">
+      <div class="section-head collapsed" onclick="toggleSection(this)">
+        <span class="chev">▾</span>
+        <h3>Vendedores no período</h3>
+        <span class="n">${porVend.size} vendedores · ordenado por % atingido</span>
+      </div>
+      <div class="section-body collapsed">
+        <div class="table-scroll">
+          <table class="data">
+            <thead><tr><th class="name-col">Vendedor</th><th style="text-align:left;">Supervisor</th><th>Dias</th>${ndThDesafio()}${ndThReal()}<th>%</th><th>Pend.</th></tr></thead>
+            <tbody>${vendRows}</tbody>
+          </table>
+        </div>
+      </div>
+    </div>`;
+  }
+  return html;
+}
+
 function renderNecessidadeSemanaResumo(){
   const rows = typeof NECESSIDADE_SEMANA_ROWS !== 'undefined' ? NECESSIDADE_SEMANA_ROWS : [];
   const catRows = typeof NECESSIDADE_CAT_SEMANA_ROWS !== 'undefined' ? NECESSIDADE_CAT_SEMANA_ROWS : [];
@@ -1508,30 +1811,28 @@ function renderNecessidadeSemanaResumo(){
   });
 
   if(porSupervisor.size === 0){
-    return '<div class="sup-sub">Nenhum valor de Desafio/Real lançado ainda esta semana.</div>';
+    return ndKpis({ desafio:0, real:0, pend:0 }, 'semana atual · geral')
+      + '<div class="sup-sub">Nenhum valor de Desafio/Real lançado ainda esta semana.</div>';
   }
 
-  const fmtNum = v => v.toLocaleString('pt-BR', {maximumFractionDigits:2});
-  const pctClass = pct => pct===null ? '' : (pct>=90 ? 'pct-good' : pct>=60 ? 'pct-warn' : 'pct-bad');
+  const fmtNum = ndFmt;
   const pendCell = n => n > 0 ? `<span class="pct-bad" title="${n} cliente(s) com Desafio lançado e Real ainda não preenchido">${n} pend.</span>` : '—';
-  // linha genérica (Desafio/Real/%/Pend.) — reaproveitada pro total geral e pra cada supervisor
+  // linha genérica (Desafio/Real/%/Pend.) — reaproveitada pra cada supervisor
   const genericRow = (nome, desafio, real, pendentes, isTotal) => {
-    const pct = desafio > 0 ? Math.round((real / desafio) * 100) : null;
-    return `<tr${isTotal?' class="agg-total"':''}><td class="name-col">${nome}</td><td class="num">${fmtNum(desafio)}</td><td class="num">${fmtNum(real)}</td><td class="num ${pctClass(pct)}">${pct===null?'—':pct+'%'}</td><td class="num">${pendCell(pendentes)}</td></tr>`;
+    return `<tr${isTotal?' class="agg-total"':''}><td class="name-col">${nome}</td><td class="num">${fmtNum(desafio)}</td><td class="num">${fmtNum(real)}</td>${ndPctCell(ndPct(desafio, real))}<td class="num">${pendCell(pendentes)}</td></tr>`;
   };
   // linha de uma categoria, já filtrada pro tipo (volume/cobertura) selecionado no toggle
   const catRow = (nome, c, isTotal) => {
     const desafio = tipoResumo === 'volume' ? c.volDesafio : c.covDesafio;
     const real = tipoResumo === 'volume' ? c.volReal : c.covReal;
     const pend = tipoResumo === 'volume' ? c.volPend : c.covPend;
-    const pct = desafio > 0 ? Math.round((real / desafio) * 100) : null;
-    return `<tr${isTotal?' class="agg-total"':''}><td class="name-col">${nome}</td><td class="num">${fmtNum(desafio)}</td><td class="num">${fmtNum(real)}</td><td class="num ${pctClass(pct)}">${pct===null?'—':pct+'%'}</td><td class="num">${pendCell(pend)}</td></tr>`;
+    return `<tr${isTotal?' class="agg-total"':''}><td class="name-col">${nome}</td><td class="num">${fmtNum(desafio)}</td><td class="num">${fmtNum(real)}</td>${ndPctCell(ndPct(desafio, real))}<td class="num">${pendCell(pend)}</td></tr>`;
   };
   const tableHead = firstColLabel => `<thead><tr>
       <th class="name-col" style="min-width:170px;">${firstColLabel}</th>
-      <th style="min-width:90px;">Desafio</th>
-      <th style="min-width:90px;">Real</th>
-      <th style="min-width:70px;">%</th>
+      ${ndThDesafio(' style="min-width:90px;"')}
+      ${ndThReal(' style="min-width:90px;"')}
+      <th style="min-width:80px;">%</th>
       <th style="min-width:90px;">Pendências</th>
     </tr></thead>`;
 
@@ -1560,27 +1861,24 @@ function renderNecessidadeSemanaResumo(){
           </table>
         </div>`;
   });
-  const totalGeralHtml = `
-    <div class="section-card" style="border-color:var(--malt-900);">
-      <div class="section-head" style="cursor:default;">
-        <h3>Total Geral (Empresa)</h3>
-        <span class="n">${porSupervisor.size} supervisores · ${totalVendedores} vendedores · desafio ${fmtNum(totalDesafio)} · real ${fmtNum(totalReal)}</span>
+  // Total geral vira os 4 cartões do topo (Desafio / Real / % / Pendências);
+  // as categorias, que não dá pra somar no total geral, ficam num card à parte.
+  const escopoTotal = porSupervisor.size > 1 ? `${porSupervisor.size} times · ${totalVendedores} vendedores` : `${totalVendedores} vendedor(es)`;
+  let html = ndKpis({ desafio: totalDesafio, real: totalReal, pend: totalPendentes }, 'semana atual · geral · ' + escopoTotal);
+  if(totalCategorias.size > 0){
+    html += `
+    <div class="section-card">
+      <div class="section-head" onclick="toggleSection(this)">
+        <span class="chev">▾</span>
+        <h3>Total por categoria — ${tipoResumo==='volume'?'Volume':'Cobertura'}</h3>
+        <span class="n">${totalCategorias.size} categoria(s)</span>
       </div>
       <div class="section-body">
-        <div class="table-scroll">
-          <table class="data">
-            ${tableHead('Empresa')}
-            <tbody>${genericRow('Total Empresa', totalDesafio, totalReal, totalPendentes, true)}</tbody>
-          </table>
-        </div>
-        ${totalCatHtml}
+        <div style="padding-bottom:10px;">${totalCatHtml}</div>
       </div>
     </div>`;
-
-  // só mostra o card de total geral quando ele soma algo além do que já
-  // aparece sozinho na seção do supervisor (>1 supervisor, ou alguma categoria)
-  const mostraTotalGeral = porSupervisor.size > 1 || totalCategorias.size > 0;
-  let html = mostraTotalGeral ? totalGeralHtml : '';
+  }
+  html += '<div class="sup-sub" style="margin:4px 0 10px;">Por time — toque pra abrir:</div>';
 
   Array.from(porSupervisor.entries()).sort((a,b)=> a[0].localeCompare(b[0])).forEach(([supNome, vmap])=>{
     let supDesafio = 0, supReal = 0, supPendentes = 0;
@@ -1653,22 +1951,31 @@ function renderCommitmentsPage(){
   // importado), não só quando já tem lançamento — senão o botão sumia bem na
   // hora que mais precisa dele: uma semana zerada, pronta pra começar.
   const temCategorias = categoriasComunsVolumeCobertura().length > 0;
+  // Indicador (Volume/Cobertura) vale pra tela toda: resumo por categoria,
+  // histórico por categoria, lançamentos e o lançamento por cliente.
   const tipoToggle = temCategorias ? `
-    <div class="cat-filter" style="margin-top:10px;">
-      <button class="cat-chip ${NECESSIDADE_TIPO_RESUMO==='volume'?'active':''}" onclick="setNecessidadeTipoResumo('volume')">Volume</button>
-      <button class="cat-chip ${NECESSIDADE_TIPO_RESUMO==='cobertura'?'active':''}" onclick="setNecessidadeTipoResumo('cobertura')">Cobertura</button>
+    <div class="indic-filtros nd-filtros">
+      ${filtroRow('Indicador', `
+        <button class="cat-chip ${NECESSIDADE_TIPO_RESUMO==='volume'?'active':''}" onclick="setNecessidadeTipoResumo('volume')">Volume</button>
+        <button class="cat-chip ${NECESSIDADE_TIPO_RESUMO==='cobertura'?'active':''}" onclick="setNecessidadeTipoResumo('cobertura')">Cobertura</button>
+        <span style="font-size:11.5px; color:var(--muted); align-self:center;">vale pros desafios por categoria</span>`)}
     </div>` : '';
   const header = `
     <div class="sup-header"><h2>Necessidade do Dia</h2></div>
-    <div class="sup-sub">${CURRENT_ROLE === 'vendedor' ? 'Lance aqui o Desafio (planejado) e o Real (vendido) por cliente.' : 'Resumo da semana atual (segunda a sexta) — Desafio planejado x Real vendido, por vendedor e por supervisor.'}</div>
+    <div class="sup-sub">
+      ${CURRENT_ROLE === 'vendedor' ? 'Planeje o Desafio de cada cliente e lance o Real vendido.' : 'Desafio planejado x Real vendido — semana atual, evolução dia a dia e lançamento por cliente.'}
+      <span style="white-space:nowrap; margin-left:6px;"><span class="nd-swatch desafio"></span>Desafio</span>
+      <span style="white-space:nowrap; margin-left:8px;"><span class="nd-swatch real"></span>Real</span>
+    </div>
     ${tipoToggle}
   `;
-  const resumo = CURRENT_ROLE === 'vendedor' ? '' : renderNecessidadeSemanaResumo();
 
   if(!NECESSIDADE_VENDEDOR){
-    let html = header + resumo + `
-      <div class="sup-sub" style="margin-top:20px;">Escolha um vendedor pra ver os clientes do dia e lançar Desafio (planejado) e Real (vendido) por cliente.</div>
-    `;
+    let html = header
+      + '<div class="nd-overline">Semana atual · seg a sex</div>' + renderNecessidadeSemanaResumo()
+      + '<div class="nd-overline">Histórico</div>' + renderNecessidadeHistorico(null)
+      + '<div class="nd-overline">Lançar por vendedor</div>'
+      + '<div class="sup-sub" style="margin-top:0;">Escolha um vendedor pra ver os clientes do dia e lançar Desafio e Real por cliente. O número entre parênteses é a quantidade de clientes.</div>';
     vendedoresPorSup.forEach((vmap, supNome)=>{
       const chips = Array.from(vmap.values())
         .sort((a,b)=> a.nome.localeCompare(b.nome))
@@ -1694,12 +2001,25 @@ function renderCommitmentsPage(){
 
   // O resumo (soma por vendedor/supervisor/categoria) já foi visto na tela
   // de escolha do vendedor — não repete aqui, só o header + o detalhe.
-  const trocarVendedorLink = CURRENT_ROLE === 'vendedor' ? '' : '<a href="#" onclick="voltarVendedorNecessidade();return false;">← trocar vendedor</a>&nbsp;·&nbsp; ';
+  const trocarVendedorBtn = CURRENT_ROLE === 'vendedor' ? '' : '<button class="btn-ghost" onclick="voltarVendedorNecessidade()">← Trocar vendedor</button>';
   let html = header + `
-    <div class="sup-sub" style="margin-top:8px;">
-      ${trocarVendedorLink}<b>${vendedorNome}</b> (${supervisorNome})
+    <div class="nd-vendor-bar">
+      ${trocarVendedorBtn}
+      <span class="nome">${vendedorNome}</span>
+      <span class="sup">time ${supervisorNome}</span>
+      <span class="sup" style="margin-left:auto;">${editable ? '✎ você pode editar' : 'somente leitura'}</span>
     </div>
   `;
+
+  // Semana atual desse vendedor — mesmos 4 números do resumo do time
+  const tot = (typeof NECESSIDADE_SEMANA_ROWS !== 'undefined' ? NECESSIDADE_SEMANA_ROWS : [])
+    .filter(r => String(r.vendedor_codigo) === String(vendedorCodigo))
+    .reduce((a, r) => {
+      const temD = r.valor_desafio !== null && r.valor_desafio !== undefined;
+      const temR = r.valor_real !== null && r.valor_real !== undefined;
+      return { desafio: a.desafio + (Number(r.valor_desafio) || 0), real: a.real + (Number(r.valor_real) || 0), pend: a.pend + (temD && !temR ? 1 : 0) };
+    }, { desafio:0, real:0, pend:0 });
+  html += '<div class="nd-overline">Semana atual · seg a sex</div>' + ndKpis(tot, 'semana atual · geral');
 
   // Lançamentos da semana desse vendedor — cliente, dia, categoria (se
   // houver) e valores, pra quem clicou no vendedor ver de cara o que foi
@@ -1728,7 +2048,7 @@ function renderCommitmentsPage(){
     lancamentos.sort((a,b)=> a.data === b.data ? a.cliente.localeCompare(b.cliente) : a.data.localeCompare(b.data));
     const pendentesCount = lancamentos.filter(l => (l.desafio !== null && l.desafio !== undefined) && (l.real === null || l.real === undefined)).length;
     const rowsHtml = lancamentos.map(l=>{
-      const dataBRl = new Date(l.data + 'T00:00:00').toLocaleDateString('pt-BR');
+      const dataBRl = fmtDataCurta(l.data); // semana atual — dd/mm basta e economiza largura no celular
       const pendente = (l.desafio !== null && l.desafio !== undefined) && (l.real === null || l.real === undefined);
       const desafioTxt = (l.desafio !== null && l.desafio !== undefined) ? fmtNumDet(l.desafio) : '—';
       const realTxt = pendente ? '<span class="pct-bad" title="Ainda sem Real lançado">pendente</span>' : ((l.real !== null && l.real !== undefined) ? fmtNumDet(l.real) : '—');
@@ -1736,15 +2056,15 @@ function renderCommitmentsPage(){
     }).join('');
     return `
     <div class="section-card">
-      <div class="section-head" onclick="toggleSection(this)">
+      <div class="section-head collapsed" onclick="toggleSection(this)">
         <span class="chev">▾</span>
         <h3>Lançamentos da semana</h3>
-        <span class="n">${lancamentos.length}${pendentesCount>0?' · '+pendentesCount+' pend.':''}</span>
+        <span class="n">${lancamentos.length} lançamento(s)${pendentesCount>0?' · '+pendentesCount+' pend.':''} · toque pra abrir</span>
       </div>
-      <div class="section-body">
+      <div class="section-body collapsed">
         <div class="table-scroll">
           <table class="data">
-            <thead><tr><th>Dia</th><th class="name-col">Cliente</th><th>Categoria</th><th style="min-width:90px;">Desafio</th><th style="min-width:90px;">Real</th></tr></thead>
+            <thead><tr><th>Dia</th><th class="name-col">Cliente</th><th>Categoria</th>${ndThDesafio(' style="min-width:90px;"')}${ndThReal(' style="min-width:90px;"')}</tr></thead>
             <tbody>${rowsHtml}</tbody>
           </table>
         </div>
@@ -1752,13 +2072,22 @@ function renderCommitmentsPage(){
     </div>`;
   })();
 
-  const dayChips = WEEKDAYS_NECESSIDADE.map(d =>
-    `<button class="cat-chip ${d.key===NECESSIDADE_DIA?'active':''}" onclick="selecionarDiaNecessidade('${d.key}')">${d.label}</button>`
-  ).join('');
-  html += `<div class="cat-filter" style="margin-bottom:16px;">${dayChips}</div>`;
+  html += '<div class="nd-overline">Histórico</div>' + renderNecessidadeHistorico(vendedorCodigo);
+
+  // Dia da semana — com a data e "hoje" destacado, pra não precisar adivinhar
+  const hojeStrNd = localDateStr(new Date());
+  const clientesDoVendedor = (typeof CLIENTES_MASTER !== 'undefined' ? CLIENTES_MASTER : []).filter(c => c.vendedor_codigo === vendedorCodigo);
+  const dayChips = WEEKDAYS_NECESSIDADE.map(d => {
+    const ds = dateForWeekday(d.key);
+    const qtd = clientesDoVendedor.filter(c => c.dia_visita === d.key).length;
+    const ehHoje = ds === hojeStrNd;
+    return `<button class="cat-chip nd-day-chip ${d.key===NECESSIDADE_DIA?'active':''} ${ehHoje?'hoje':''}" onclick="selecionarDiaNecessidade('${d.key}')" title="${qtd} cliente(s)">${ehHoje ? 'Hoje · ' : ''}${d.label}<span class="dt">${fmtDataCurta(ds)}</span></button>`;
+  }).join('');
+  html += '<div class="nd-overline">Lançar por cliente</div>'
+    + `<div class="indic-filtros nd-filtros">${filtroRow('Dia', dayChips)}</div>`;
 
   if(!NECESSIDADE_DIA){
-    html += '<div class="sup-sub">Escolha um dia da semana.</div>';
+    html += '<div class="sup-sub">Escolha um dia da semana pra ver os clientes e lançar Desafio e Real.</div>';
     return html;
   }
 
@@ -1780,8 +2109,10 @@ function renderCommitmentsPage(){
     catChips += categoriasDisponiveis.map(c =>
       `<button class="cat-chip ${NECESSIDADE_CATEGORIAS_SELECIONADAS.has(c)?'active':''}" onclick="toggleNecessidadeCategoria('${c.replace(/'/g,"\\'")}')">${prettyLabel(c)}</button>`
     ).join('');
-    html += `<div class="sup-sub" style="margin-top:0;">Categoria do desafio, em <b>${tipoAtualEntrada==='volume'?'Volume':'Cobertura'}</b> (troque no botão lá em cima) — vale pro dia inteiro, pode marcar mais de uma; "Nenhuma" volta pro Desafio/Real genérico:</div>
-      <div class="cat-filter" style="margin-bottom:16px;">${catChips}</div>`;
+    html += `<div class="indic-filtros nd-filtros" style="margin-top:-2px;">
+        ${filtroRow('Categoria · ' + (tipoAtualEntrada==='volume'?'Volume':'Cobertura'), catChips)}
+        <div style="font-size:11.5px; color:var(--muted); padding-top:6px;">Vale pro dia inteiro; pode marcar mais de uma. "Nenhuma" = Desafio/Real geral. Volume/Cobertura se troca no filtro Indicador, no topo.</div>
+      </div>`;
   }
 
   if(clientesDoDia.length === 0){
@@ -1825,7 +2156,7 @@ function renderCommitmentsPage(){
     let fieldRow = '';
     categoriasSelecionadas.forEach(cat=>{
       catRow += '<th colspan="2">'+prettyLabel(cat)+'</th>';
-      fieldRow += '<th class="group-start">Desafio</th><th>Real</th>';
+      fieldRow += ndThDesafio(' class="group-start"') + ndThReal();
     });
     thead = '<tr class="cat-row">'+catRow+'</tr><tr class="field-row">'+fieldRow+'</tr>';
   } else {
@@ -1833,8 +2164,8 @@ function renderCommitmentsPage(){
       <th class="name-col">Cliente</th>
       <th class="col-cidade">Cidade</th>
       <th class="col-canal">Canal</th>
-      <th style="min-width:110px;">Desafio</th>
-      <th style="min-width:110px;">Real</th>
+      ${ndThDesafio(' style="min-width:110px;"')}
+      ${ndThReal(' style="min-width:110px;"')}
     </tr>`;
   }
 
@@ -2784,6 +3115,11 @@ function renderSidebar(){
       <span class="sup-avatar">💰</span>
       <span>Remuneração</span>
     </button>` : '';
+  const incentivoBtn = INCENTIVO_VISIVEL ? `
+    <button class="sup-btn ${inActive}" onclick="selectSupervisor('INCENTIVO')">
+      <span class="sup-avatar">★</span>
+      <span>Incentivo</span>
+    </button>` : '';
   const adminActive = ACTIVE_SUP === 'ADMIN' ? 'active' : '';
   const adminBtn = CURRENT_ROLE === 'admin' ? `
     <button class="sup-btn ${adminActive}" onclick="selectSupervisor('ADMIN')">
@@ -2794,10 +3130,7 @@ function renderSidebar(){
       <span class="sup-avatar">☑</span>
       <span>Necessidade do Dia</span>
     </button>
-    <button class="sup-btn ${inActive}" onclick="selectSupervisor('INCENTIVO')">
-      <span class="sup-avatar">★</span>
-      <span>Incentivo</span>
-    </button>
+    ${incentivoBtn}
     <button class="sup-btn ${idActive}" onclick="selectSupervisor('INDICADORES')">
       <span class="sup-avatar">▤</span>
       <span>Indicadores</span>
@@ -2869,6 +3202,8 @@ function renderTopMeta(){
 }
 
 function selectSupervisor(sheetName){
+  // Bloqueia também quem chamar selectSupervisor('INCENTIVO') pelo console.
+  if(sheetName === 'INCENTIVO' && !INCENTIVO_VISIVEL) sheetName = 'INDICADORES';
   ACTIVE_SUP = sheetName;
   render();
 }
