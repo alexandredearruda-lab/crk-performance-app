@@ -3644,6 +3644,12 @@ function renderAdminPage(){
   if(!perfis.length){
     return header + '<div class="sup-sub">Nenhum perfil encontrado. Se a tela ficar sempre vazia, confira se rodou schema_admin_acessos.sql no Supabase.</div>';
   }
+  // Sem a policy "admin lê tudo" o RLS não dá erro — só devolve o próprio
+  // perfil em silêncio. Avisa em vez de mostrar uma lista de 1 que parece certa.
+  const soOProprio = perfis.length === 1 && typeof CURRENT_USER !== 'undefined' && CURRENT_USER && perfis[0].id === CURRENT_USER.id;
+  const avisoPolicy = soOProprio
+    ? '<div class="section-card" style="border-color:var(--bad);"><div class="section-body" style="padding:14px 18px; color:var(--bad-text); font-size:13px;">⚠ Só o seu próprio perfil apareceu. Provavelmente falta a permissão de admin no banco: rode o arquivo <code>schema_admin_acessos.sql</code> no SQL Editor do Supabase e recarregue a página.</div></div>'
+    : '';
 
   const pill = (ligado, onclick) =>
     `<button onclick="${onclick}" class="cat-chip ${ligado?'active':''}" style="min-width:84px;">${ligado?'Liberado':'Bloqueado'}</button>`;
@@ -3670,7 +3676,7 @@ function renderAdminPage(){
     </tr>`;
   }).join('');
 
-  return header + `
+  return header + avisoPolicy + `
   <div class="section-card">
     <div class="section-head" onclick="toggleSection(this)">
       <span class="chev">▾</span>
